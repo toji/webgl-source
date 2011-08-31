@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <title>Source Demo</title>
+        
+        <!-- Common Utilities -->
+        <script type="text/javascript" src="js/glMatrix.js"></script>
+        <script type="text/javascript" src="js/js-struct.js"></script>
+        <script type="text/javascript" src="js/webgl-util.js"></script>
+        <script type="text/javascript" src="js/webgl-demo-camera.js"></script>
+        
+        <!-- Source engine specific -->
+        <script type="text/javascript" src="js/source-vmt.js"></script>
+        <script type="text/javascript" src="js/source-mdl.js"></script>
+        <script type="text/javascript" src="js/source-bsp.js"></script>
+        
+        <!-- Main Javascript -->
+        <script type="text/javascript">
+            "use strict";
+            
+            var model, map, currentFrame, lastFrameTime;
+            var camera;
+            var nullTexture;
+            
+            var zAngle = 0;
+            var xAngle = 0;
+            var frame = 0;
+
+            // Set up basic GL State up front
+            function initGL(gl, canvas) {
+                gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+                
+                gl.clearColor(0.0, 0.0, 0.0, 1.0);
+                gl.clearDepth(1.0);
+                gl.enable(gl.DEPTH_TEST);
+                gl.depthFunc(gl.LEQUAL);
+                
+                gl.enable(gl.CULL_FACE);
+                gl.cullFace(gl.FRONT);
+                
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                
+                camera = Object.create(FlyingDemoCamera).init(canvas);
+                camera.speed = 750;
+                
+                initMesh(gl);
+            }
+            
+            // Load the collada model
+            function initMesh(gl) {
+                //model = Object.create(SourceModel).load(gl, 'root/tf/models/heavy');
+                map = Object.create(SourceBsp).load(gl, 'root/tf/maps/ctf_2fort');
+            }
+
+            // Draw a single frame
+            function drawFrame(gl, time) {
+                // Clear back buffer
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+                
+                if(!map) { return; }
+                
+                camera.update(16);
+                
+                //model.draw(gl, modelViewMat, projectionMat);
+                map.draw(gl, camera.modelViewMat, camera.projectionMat);
+            }
+            
+            // shim layer with setTimeout fallback
+            window.requestAnimFrame = (function(){
+              return  window.requestAnimationFrame       || 
+                      window.webkitRequestAnimationFrame || 
+                      window.mozRequestAnimationFrame    || 
+                      window.oRequestAnimationFrame      || 
+                      window.msRequestAnimationFrame
+            })();
+         
+            function setFrameCallback(onFrame, element) {
+                function animloop(time){
+                  onFrame(time);
+                  window.requestAnimFrame(animloop, element);
+                };
+                window.requestAnimFrame(animloop, element);
+            }
+
+            function main() {
+                var canvas = document.getElementById('viewport');
+                
+                // Fit the canvas to the document
+                canvas.width = document.width;
+                canvas.height = document.height;
+                
+                // Get the GL Context
+                var gl = glUtil.getContext(canvas);
+                
+                if(!gl) { return; }
+                
+                gl.viewportWidth = canvas.width;
+                gl.viewportHeight = canvas.height;
+                
+                initGL(gl, canvas);
+                
+                // Draw Frames in quick succession
+                setFrameCallback(function(time){
+                    drawFrame(gl, time); 
+                    frame++;
+                }, canvas);
+                
+                // FPS Counter
+                setInterval(function(){ 
+                    document.getElementById('fps').innerHTML = frame;
+                    frame = 0;
+                }, 1000); // TODO: This is pretty clunky. Find a better way...
+            }
+            
+            window.addEventListener("load", main);
+        </script>
+        
+        <style type="text/css">
+            body {
+                font: 0.8em Verdana,sans-serif;
+            }
+            
+            #fps-counter {
+                position: absolute;
+                top: 5px;
+                left: 5px;
+                z-index: 2;
+                color: white;
+            }
+            
+            #controls {
+                position: absolute;
+                bottom: 5px;
+                left: 5px;
+                z-index: 2;
+                color: white;
+            }
+            
+            canvas {
+                position: absolute;
+                cursor: move;
+                top: 0;
+                left: 0;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="viewport-frame">
+            <canvas id="viewport">
+                Sorry, but your browser does not support WebGL or does not have it enabled.
+                To get a WebGL-enabled browser, please see:<br/>
+                <a href="http://www.khronos.org/webgl/wiki/Getting_a_WebGL_Implementation" target="_blank">
+                    Getting a WebGL Implementation
+                </a>
+            </canvas>
+            <div id="fps-counter">
+                FPS: <span id="fps">0</span>
+            </div>
+        </div>
+    </body>
+</html>
