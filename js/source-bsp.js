@@ -55,11 +55,11 @@ meshFS += "uniform sampler2D lightmap;";
 meshFS += "varying vec2 texCoord;\n";
 meshFS += "varying vec2 lightCoord;\n";
 meshFS += "void main(void) {\n";
-meshFS += " vec4 light = texture2D(lightmap, lightCoord.st);\n";
-meshFS += " vec4 color = texture2D(diffuse, texCoord.st);\n";
-//meshFS += " gl_FragColor = vec4((color.rgb * light.rgb) * pow(2.0, light.a), color.a);\n";
+meshFS += " vec4 light = texture2D(lightmap, lightCoord);\n";
+meshFS += " vec4 color = texture2D(diffuse, texCoord);\n";
+meshFS += " gl_FragColor = vec4(color.rgb * light.rgb, color.a);\n";
 //meshFS += " gl_FragColor = vec4(light.rgb, 1.0);\n";
-meshFS += " gl_FragColor = color;\n";
+//meshFS += " gl_FragColor = color;\n";
 meshFS += "}";
 
 //=============
@@ -392,6 +392,7 @@ var SourceBsp = Object.create(Object, {
             
             var lightingLump = header.lumps[LUMP_LIGHTING];
             bspData.lighting = new Uint8Array(buffer, lightingLump.fileofs, lightingLump.filelen);
+            bspData.lightingExp = new Int8Array(buffer, lightingLump.fileofs, lightingLump.filelen);
             
             var texDataStringTableLump = header.lumps[LUMP_TEXDATA_STRING_TABLE];
             var texDataStringTable = new Int32Array(buffer, texDataStringTableLump.fileofs, texDataStringTableLump.filelen/4);
@@ -519,14 +520,16 @@ var SourceBsp = Object.create(Object, {
                     
                     if(face.lightofs != -1) {
                         // Load the lighting for this face
-                        if(!lightmap.loadFaceLighting(gl, face, bspData.lighting)) {
+                        if(!lightmap.loadFaceLighting(gl, face, bspData.lighting, bspData.lightingExp)) {
                             // If the current lightmap is full, change over to a new one
                             if(triPatch.indexCount > 0) {
                                 lockGroup.triPatches.push(triPatch);
                             }
+                            
+                            lightmap.finalize(gl);
                         
                             lightmap = Object.create(SourceLightmap).init(gl);
-                            lightmap.loadFaceLighting(gl, face, bspData.lighting)
+                            lightmap.loadFaceLighting(gl, face, bspData.lighting, bspData.lightingExp)
                         
                             triPatch = {
                                 indexOffset: lockGroup.indexCount*2,
@@ -547,12 +550,12 @@ var SourceBsp = Object.create(Object, {
                         
                         if(i == 0) {
                             rootVertId = edge.v[reverse?0:1];
-                            rootPoint = this._compileGpuVertex(bspData.vertices[rootVertId], texInfo, texData, vertices);
+                            rootPoint = this._compileGpuVertex(bspData.vertices[rootVertId], face, texInfo, texData, vertices);
                             vertLookupTable[rootVertId] = rootPoint;
                             lockGroup.vertexCount++;
                             
                             vertId = edge.v[reverse?1:0];
-                            pointB = this._compileGpuVertex(bspData.vertices[vertId], texInfo, texData, vertices);
+                            pointB = this._compileGpuVertex(bspData.vertices[vertId], face, texInfo, texData, vertices);
                             vertLookupTable[vertId] = pointB;
                             lockGroup.vertexCount++;
                             
@@ -562,7 +565,7 @@ var SourceBsp = Object.create(Object, {
                             if(vertId in vertLookupTable) {
                                 pointA = vertLookupTable[vertId];
                             } else {
-                                pointA = this._compileGpuVertex(bspData.vertices[vertId], texInfo, texData, vertices);
+                                pointA = this._compileGpuVertex(bspData.vertices[vertId], face, texInfo, texData, vertices);
                                 vertLookupTable[vertId] = pointA;
                                 lockGroup.vertexCount++;
                             }
@@ -572,7 +575,7 @@ var SourceBsp = Object.create(Object, {
                             if(vertId in vertLookupTable) {
                                 pointB = vertLookupTable[vertId];
                             } else {
-                                pointB = this._compileGpuVertex(bspData.vertices[vertId], texInfo, texData, vertices);
+                                pointB = this._compileGpuVertex(bspData.vertices[vertId], face, texInfo, texData, vertices);
                                 vertLookupTable[vertId] = pointB;
                                 lockGroup.vertexCount++;
                             }
@@ -593,6 +596,8 @@ var SourceBsp = Object.create(Object, {
                 }
             }
             
+            lightmap.finalize(gl);
+            
             bspData.lockGroups.push(lockGroup);
             
             bspData.vertexArray = vertices;
@@ -611,7 +616,7 @@ var SourceBsp = Object.create(Object, {
     
     _loadMaterials: {
         value: function(gl, bspData) {
-            /*for(var texDataId in bspData.texData) {
+            for(var texDataId in bspData.texData) {
                 var texData = bspData.texData[texDataId];
                 var materialName = bspData.texDataStrings[texData.nameStringTableID];
                 
@@ -620,7 +625,7 @@ var SourceBsp = Object.create(Object, {
                 if(texData.faces) {
                     texData.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/" + materialName);
                 }
-            }*/
+            }
         }
     },
     
@@ -637,28 +642,39 @@ var SourceBsp = Object.create(Object, {
     },
     
     _compileGpuVertex: {
-        value: function(pos, texInfo, texData, vertices) {
+        value: function(pos, face, texInfo, texData, vertices) {
             var tu = texInfo.textureVecsTexelsPerWorldUnits[0]; 
             var tv = texInfo.textureVecsTexelsPerWorldUnits[1];
             
             var lu = texInfo.lightmapVecsLuxelsPerWorldUnits[0]; 
             var lv = texInfo.lightmapVecsLuxelsPerWorldUnits[1];
             
+            var lm = face.m_LightmapTextureMinsInLuxels; 
+            var ls = face.m_LightmapTextureSizeInLuxels;
+            
             var index = vertices.length / this.VERTEX_ELEMENTS; 
             
+            // Vertex Position
             vertices.push(pos.x);
             vertices.push(pos.y);
             vertices.push(pos.z);
             
+            // Texture Coord calculation
             var vtu = (tu.x * pos.x + tu.y * pos.y + tu.z * pos.z + tu.offset) / texData.width; 
             var vtv = (tv.x * pos.x + tv.y * pos.y + tv.z * pos.z + tv.offset) / texData.height;
             
-            // Faking the lightmap coords for now. That's gonna get ugly...
-            var vlu = (lu.x * pos.x + lu.y * pos.y + lu.z * pos.z + lu.offset) / texData.width; 
-            var vlv = (lv.x * pos.x + lv.y * pos.y + lv.z * pos.z + lv.offset) / texData.height;
-            
             vertices.push(vtu);
             vertices.push(vtv);
+            
+            // Lightmap Coord Calculation
+            var vlu = (lu.x * pos.x + lu.y * pos.y + lu.z * pos.z + lu.offset - lm[0]) / (ls[0] + 1); 
+            var vlv = (lv.x * pos.x + lv.y * pos.y + lv.z * pos.z + lv.offset - lm[1]) / (ls[1] + 1);
+            
+            // Compensate for packed textures
+            vlu = (vlu + face.lightmapOffsetX) * face.lightmapScaleX;
+            vlv = (vlv + face.lightmapOffsetY) * face.lightmapScaleY;
+            
+            
             
             vertices.push(vlu);
             vertices.push(vlv);
@@ -705,12 +721,12 @@ var SourceBsp = Object.create(Object, {
                 for(var triPatchId in lockGroup.triPatches) {
                     var triPatch = lockGroup.triPatches[triPatchId];
                     
-                    /*if(triPatch.lightmap !== lastLightmap) {
+                    if(triPatch.lightmap !== lastLightmap) {
                         gl.activeTexture(gl.TEXTURE1);
                         gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
                         gl.uniform1i(shader.uniform.lightmap, 1);
                         lastLightmap = triPatch.lightmap;
-                    }*/
+                    }
                     
                     var texture = null;
                     if(triPatch.texData && triPatch.texData.material) {
@@ -736,7 +752,7 @@ var SourceBsp = Object.create(Object, {
 // (A good deal of this is reused from my Quake 2 demo)
 //=================
 
-var LIGHTMAP_SIZE = 1024;
+var LIGHTMAP_SIZE = 512;
 
 var SourceLightmap = Object.create(Object, {
     // WebGL texture
@@ -760,7 +776,6 @@ var SourceLightmap = Object.create(Object, {
             // Set the last few pixels to white (for non-lightmapped faces)
         	var whitePixels = new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
         	gl.texSubImage2D(gl.TEXTURE_2D, 0, LIGHTMAP_SIZE-2, LIGHTMAP_SIZE-2, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, whitePixels);
-        	gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, whitePixels);
 
             this.rectTree = {
                 x: 0, 
@@ -831,25 +846,55 @@ var SourceLightmap = Object.create(Object, {
     
     // Read lightmap from BSP file
     loadFaceLighting: {
-        value: function(gl, face, lighting) {
+        value: function(gl, face, lighting, lightingExp) {
             var width = face.m_LightmapTextureSizeInLuxels[0] + 1;
             var height = face.m_LightmapTextureSizeInLuxels[1] + 1;
             
             if(height <= 0 || width <= 0) { return null; }
+            
+            var styleCount = 0;
+            for(var i in face.styles) { 
+                if(face.styles[i] != 255) { styleCount++; }
+            }
 
             // Navigate lightmap BSP to find correctly sized space
-            var node = this.allocateRect(width, height);
+            var node = this.allocateRect(width, height * styleCount);
 
             if(node) {
                 // Read the lightmap from the BSP file
-                /*var byteCount = width * height * 4;
-                var buffer = new Uint8Array(lighting, face.lightofs, byteCount);
+                var byteCount = width * height * 4 * styleCount;
+                
+                var lightmap = new Uint8Array(byteCount);
+                
+                var lightbuffer = lighting.subarray(face.lightofs, face.lightofs + byteCount);
+                var expbuffer = lightingExp.subarray(face.lightofs + 3, face.lightofs + byteCount - 3);
+                
+                for(var i = 0; i < byteCount;) {
+                    var exp = Math.pow(2, expbuffer[i]);
+                    lightmap[i] = lightbuffer[i] * exp; ++i;
+                    lightmap[i] = lightbuffer[i] * exp; ++i;
+                    lightmap[i] = lightbuffer[i] * exp; ++i;
+                    lightmap[i] = 255; ++i;
+                }
                 
                 // Copy the lightmap into the allocated rectangle
                 gl.bindTexture(gl.TEXTURE_2D, this.texture);
-                gl.texSubImage2D(gl.TEXTURE_2D, 0, node.x, node.y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);*/
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, node.x, node.y, width, height * styleCount, gl.RGBA, gl.UNSIGNED_BYTE, lightmap);
+                
+                face.lightmapOffsetX = node.x / LIGHTMAP_SIZE;
+                face.lightmapOffsetY = node.y / LIGHTMAP_SIZE;
+                face.lightmapScaleX = width / LIGHTMAP_SIZE;
+                face.lightmapScaleY = height / LIGHTMAP_SIZE;
             }
             return node;
         }
-    } 
+    },
+    
+    // Read lightmap from BSP file
+    finalize: {
+        value: function(gl) {
+            gl.bindTexture(gl.TEXTURE_2D, this.texture);
+            gl.generateMipmap(gl.TEXTURE_2D);
+        }
+    }
 });

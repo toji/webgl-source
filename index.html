@@ -29,7 +29,7 @@
 
             // Set up basic GL State up front
             function initGL(gl, canvas) {
-                gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+                gl.viewport(0, 0, canvas.width, canvas.height);
                 
                 gl.clearColor(0.0, 0.0, 0.0, 1.0);
                 gl.clearDepth(1.0);
@@ -96,8 +96,11 @@
                 
                 if(!gl) { return; }
                 
-                gl.viewportWidth = canvas.width;
-                gl.viewportHeight = canvas.height;
+                
+                /*function throwOnGLError(err, funcName, args) {
+                  throw WebGLDebugUtils.glEnumToString(err) + " was caused by call to" + funcName;
+                };
+                gl = WebGLDebugUtils.makeDebugContext(gl, throwOnGLError);*/
                 
                 initGL(gl, canvas);
                 
