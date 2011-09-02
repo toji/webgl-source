@@ -57,7 +57,8 @@ meshFS += "varying vec2 lightCoord;\n";
 meshFS += "void main(void) {\n";
 meshFS += " vec4 light = texture2D(lightmap, lightCoord);\n";
 meshFS += " vec4 color = texture2D(diffuse, texCoord);\n";
-meshFS += " gl_FragColor = vec4(color.rgb * light.rgb, color.a);\n";
+meshFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
+meshFS += " gl_FragColor = vec4(color.rgb * (light.rgb + ambient), color.a);\n";
 //meshFS += " gl_FragColor = vec4(light.rgb, 1.0);\n";
 //meshFS += " gl_FragColor = color;\n";
 meshFS += "}";
@@ -67,8 +68,11 @@ meshFS += "}";
 //=============
 
 var MAX_INDEX = 65536;
-
+var MAXLIGHTMAPS = 4;
 var HEADER_LUMPS = 64;
+var STATIC_PROP_NAME_LENGTH = 128;
+
+var GAMELUMP_STATIC_PROPS = 1936749168; // 'sprp';
 
 var LUMP_ENTITIES                   = 0,
     LUMP_PLANES                     = 1,
@@ -131,8 +135,6 @@ var LUMP_ENTITIES                   = 0,
     LUMP_FACES_HDR                  = 58,
     LUMP_MAP_FLAGS                  = 59,
     LUMP_OVERLAY_FADES              = 60;
-    
-var MAXLIGHTMAPS = 4;
 
 // TexInfo Flags
 var SURF_LIGHT = 0x0001, // value will hold the light strength
@@ -153,6 +155,12 @@ var SURF_LIGHT = 0x0001, // value will hold the light strength
     SURF_HITBOX = 0x8000; // surface is part of a hitbox
 
 var Vector = Struct.create(
+    Struct.float32("x"),
+    Struct.float32("y"),
+    Struct.float32("z")
+);
+
+var QAngle = Struct.create(
     Struct.float32("x"),
     Struct.float32("y"),
     Struct.float32("z")
@@ -191,7 +199,7 @@ var dface_t = Struct.create(
     Struct.int16("texinfo"),
     Struct.int16("dispinfo"),
     Struct.int16("surfaceFogVolumeID"),
-    Struct.array("styles", Struct.int8(), MAXLIGHTMAPS),
+    Struct.array("styles", Struct.uint8(), MAXLIGHTMAPS),
     Struct.int32("lightofs"),
     Struct.float32("area"),
     Struct.array("m_LightmapTextureMinsInLuxels", Struct.int32(), 2),
@@ -251,18 +259,6 @@ var dmodel_t = Struct.create(
     Struct.int32("numfaces")
 );
 
-var dgamelumpheader_t = Struct.create(
-    Struct.int32("lumpCount")
-);
-
-var dgamelump_t = Struct.create(
-    Struct.int32("id"),
-    Struct.uint16("flags"),
-    Struct.uint16("version"),
-    Struct.int32("fileofs"),
-    Struct.int32("filelen")
-);
-
 var dnode_t = Struct.create(
     Struct.int32("planenum"),
     Struct.array("children", Struct.int32(), 2),
@@ -310,6 +306,55 @@ var dbrushside_t = Struct.create(
     Struct.int16("texinfo"),
     Struct.int16("dispinfo"),
     Struct.int16("bevel")
+);
+
+var dgamelumpheader_t = Struct.create(
+    Struct.int32("lumpCount")
+);
+
+var dgamelump_t = Struct.create(
+    Struct.int32("id"),
+    Struct.uint16("flags"),
+    Struct.uint16("version"),
+    Struct.int32("fileofs"),
+    Struct.int32("filelen")
+);
+
+var StaticPropDictLumpHeader_t = Struct.create(
+    Struct.int32("dictEntries")
+);
+
+var StaticPropDictLump_t = Struct.create(
+    Struct.string("m_Name", STATIC_PROP_NAME_LENGTH)
+);
+
+var StaticPropLeafLumpHeader_t = Struct.create(
+	Struct.int32("leafEntries")
+);
+
+var StaticPropLeafLump_t = Struct.create(
+	Struct.uint16("m_Leaf")
+);
+
+var StaticPropLumpHeader_t = Struct.create(
+    Struct.int32("propEntries")
+);
+
+var StaticPropLump_t = Struct.create(
+    Struct.struct("m_Origin", Vector),
+    Struct.struct("m_Angles", QAngle),
+    Struct.uint16("m_PropType"),
+    Struct.uint16("m_FirstLeaf"),
+    Struct.uint16("m_LeafCount"),
+    Struct.uint8("m_Solid"),
+    Struct.uint8("m_Flags"),
+    Struct.int32("m_Skin"),
+    Struct.float32("m_FadeMinDist"),
+    Struct.float32("m_FadeMaxDist"),
+    Struct.struct("m_LightingOrigin", Vector),
+    Struct.float32("m_flForcedFadeScale"),
+    Struct.uint16("m_nMinDXLevel"),
+    Struct.uint16("m_nMaxDXLevel")
 );
 
 var SourceBsp = Object.create(Object, {
@@ -398,8 +443,11 @@ var SourceBsp = Object.create(Object, {
             var texDataStringTable = new Int32Array(buffer, texDataStringTableLump.fileofs, texDataStringTableLump.filelen/4);
             bspData.texDataStrings = this._parseStringTable(buffer, header.lumps[LUMP_TEXDATA_STRING_DATA], texDataStringTable); // Possible alignment issues here!
             
-            //var gameLumpHeader = this._parseLump(buffer, header.lumps[LUMP_GAME_LUMP], dgamelumpheader_t)[0];
-            //var gameLumps = this._parseLump(buffer, header.lumps[LUMP_GAME_LUMP], dgamelumpheader_t)[0];
+            var gameLumpOffset = header.lumps[LUMP_GAME_LUMP].fileofs;
+            var gameLumpHeader = dgamelumpheader_t.readStructs(buffer, gameLumpOffset, 1)[0];
+            bspData.gameLumps = dgamelump_t.readStructs(buffer, gameLumpOffset + dgamelumpheader_t.byteLength, gameLumpHeader.lumpCount);
+            
+            this._parseGameLumps(buffer, bspData, bspData.gameLumps);
             
             return bspData;
         }
@@ -431,6 +479,41 @@ var SourceBsp = Object.create(Object, {
             }
             
             return strings;
+        }
+    },
+    
+    _parseGameLumps: {
+        value: function(buffer, bspData, gameLumps) {
+            for(var gameLumpId in gameLumps) {
+                var gameLump = gameLumps[gameLumpId];
+                
+                switch(gameLump.id) {
+                    case GAMELUMP_STATIC_PROPS:
+                        this._parseStaticProps(buffer, bspData, gameLump);
+                        break;
+                }
+            }
+        }
+    },
+    
+    _parseStaticProps: {
+        value: function(buffer, bspData, gameLump) {
+            var offset = gameLump.fileofs;
+            
+            var staticPropDictHeader = StaticPropDictLumpHeader_t.readStructs(buffer, offset, 1)[0];
+            offset += StaticPropDictLumpHeader_t.byteLength;
+            bspData.staticPropDict = StaticPropDictLump_t.readStructs(buffer, offset, staticPropDictHeader.dictEntries);
+            offset += StaticPropDictLump_t.byteLength * staticPropDictHeader.dictEntries;
+            
+            var staticPropLeafHeader = StaticPropLeafLumpHeader_t.readStructs(buffer, offset, 1)[0];
+            offset += StaticPropLeafLumpHeader_t.byteLength;
+            bspData.staticPropLeaves = StaticPropLeafLump_t.readStructs(buffer, offset, staticPropLeafHeader.leafEntries);
+            offset += StaticPropLeafLump_t.byteLength * staticPropLeafHeader.leafEntries;
+            
+            var staticPropHeader = StaticPropLumpHeader_t.readStructs(buffer, offset, 1)[0];
+            offset += StaticPropLumpHeader_t.byteLength;
+            bspData.staticProps = StaticPropLump_t.readStructs(buffer, offset, staticPropHeader.propEntries);
+            offset += StaticPropLump_t.byteLength * staticPropLeafHeader.leafEntries;
         }
     },
     
@@ -671,10 +754,8 @@ var SourceBsp = Object.create(Object, {
             var vlv = (lv.x * pos.x + lv.y * pos.y + lv.z * pos.z + lv.offset - lm[1]) / (ls[1] + 1);
             
             // Compensate for packed textures
-            vlu = (vlu + face.lightmapOffsetX) * face.lightmapScaleX;
-            vlv = (vlv + face.lightmapOffsetY) * face.lightmapScaleY;
-            
-            
+            vlu = (vlu * face.lightmapScaleX) + face.lightmapOffsetX;
+            vlv = (vlv * face.lightmapScaleY) + face.lightmapOffsetY;
             
             vertices.push(vlu);
             vertices.push(vlv);
@@ -787,17 +868,114 @@ var SourceLightmap = Object.create(Object, {
             return this;
         }
     },
+    
+    // Read lightmap from BSP file
+    loadFaceLighting: {
+        value: function(gl, face, lighting, lightingExp) {
+            var width = face.m_LightmapTextureSizeInLuxels[0] + 1;
+            var height = face.m_LightmapTextureSizeInLuxels[1] + 1;
+            
+            if(height <= 0 || width <= 0) { return null; }
+            
+            var styleCount;
+            for(styleCount = 0; styleCount < face.styles.length; styleCount++) { 
+                if(face.styles[styleCount] == 255) { break; }
+            }
+            
+            function clamp(value) {
+                return value > 255 ? 255 : value < 0 ? 0 : value;
+            }
 
+            // Navigate lightmap BSP to find correctly sized space
+            // Allocate room for a 1 pixel border to prevent bleeding from other lightmaps
+            var node = this._allocateRect(width+2, height+2);
+
+            if(node) {
+                // Read the lightmap from the BSP file
+                var byteCount = width * height * 4;
+                var borderedByteCount = (width+2) * (height+2) * 4; // includes border
+                var rowBytes = (width+2) * 4;
+                
+                var lightmap = new Uint8Array(borderedByteCount);
+                
+                for(var j = 0; j < styleCount; ++j) {
+                    var lightOffset = face.lightofs + (byteCount*j);
+                    var lightbuffer = lighting.subarray(lightOffset, lightOffset + byteCount);
+                    var expbuffer = lightingExp.subarray(lightOffset + 3, lightOffset + byteCount - 3);
+                    
+                    var i = 0;
+                    
+                    // Fill out the lightmap, minus borders
+                    for(var y = 0; y < height; ++y) {
+                        var o = (rowBytes * (y+1)) + 4;
+                        for(var x = 0; x < width; ++x) {
+                            var exp = Math.pow(2, expbuffer[i]);
+                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
+                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
+                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
+                            lightmap[o] = 255; ++i; ++o;
+                        }
+                    }
+                    
+                    // Generate the borders
+                    this._fillBorders(lightmap, width+2, height+2);
+                }
+                
+                // Copy the lightmap into the allocated rectangle
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, node.x, node.y, width+2, height+2, gl.RGBA, gl.UNSIGNED_BYTE, lightmap);
+                
+                face.lightmapOffsetX = (node.x+1) / LIGHTMAP_SIZE;
+                face.lightmapOffsetY = (node.y+1) / LIGHTMAP_SIZE;
+                face.lightmapScaleX = width / LIGHTMAP_SIZE;
+                face.lightmapScaleY = height / LIGHTMAP_SIZE;
+            }
+            return node;
+        }
+    },
+    
+    _fillBorders: {
+        value: function(lightmap, width, height) {
+            var rowBytes = width * 4;
+            var o;
+            
+            // Fill in the sides
+            for(var y = 1; y < height-1; ++y) {
+                // left side
+                o = rowBytes * y;
+                lightmap[o] = lightmap[o + 4]; ++o;
+                lightmap[o] = lightmap[o + 4]; ++o;
+                lightmap[o] = lightmap[o + 4]; ++o;
+                lightmap[o] = lightmap[o + 4];
+                
+                // right side
+                o = (rowBytes * (y+1)) - 4;
+                lightmap[o] = lightmap[o - 4]; ++o;
+                lightmap[o] = lightmap[o - 4]; ++o;
+                lightmap[o] = lightmap[o - 4]; ++o;
+                lightmap[o] = lightmap[o - 4];
+            }
+            
+            var end = width * height * 4;
+            
+            // Fill in the top and bottom
+            for(var x = 0; x < rowBytes; ++x) {
+                lightmap[x] = lightmap[x + rowBytes];
+                lightmap[(end-rowBytes) + x] = lightmap[(end-(rowBytes*2) + x)];
+            }
+        }
+    },
+    
     // Navigate the Lightmap BSP tree and find an empty spot of the right size
-    allocateRect: {
+    _allocateRect: {
         value: function(width, height, node) {
             if(!node) { node = this.rectTree; }
             
             // Check children node
             if(node.nodes != null) { 
-                var retNode = this.allocateRect(width, height, node.nodes[0]);
+                var retNode = this._allocateRect(width, height, node.nodes[0]);
                 if(retNode) { return retNode; }
-                return this.allocateRect(width, height, node.nodes[1]);
+                return this._allocateRect(width, height, node.nodes[1]);
             }
 
             // Already used
@@ -840,53 +1018,7 @@ var SourceLightmap = Object.create(Object, {
                 ];
             }
             node.nodes = nodes;
-            return this.allocateRect(width, height, node.nodes[0]);
-        }
-    },
-    
-    // Read lightmap from BSP file
-    loadFaceLighting: {
-        value: function(gl, face, lighting, lightingExp) {
-            var width = face.m_LightmapTextureSizeInLuxels[0] + 1;
-            var height = face.m_LightmapTextureSizeInLuxels[1] + 1;
-            
-            if(height <= 0 || width <= 0) { return null; }
-            
-            var styleCount = 0;
-            for(var i in face.styles) { 
-                if(face.styles[i] != 255) { styleCount++; }
-            }
-
-            // Navigate lightmap BSP to find correctly sized space
-            var node = this.allocateRect(width, height * styleCount);
-
-            if(node) {
-                // Read the lightmap from the BSP file
-                var byteCount = width * height * 4 * styleCount;
-                
-                var lightmap = new Uint8Array(byteCount);
-                
-                var lightbuffer = lighting.subarray(face.lightofs, face.lightofs + byteCount);
-                var expbuffer = lightingExp.subarray(face.lightofs + 3, face.lightofs + byteCount - 3);
-                
-                for(var i = 0; i < byteCount;) {
-                    var exp = Math.pow(2, expbuffer[i]);
-                    lightmap[i] = lightbuffer[i] * exp; ++i;
-                    lightmap[i] = lightbuffer[i] * exp; ++i;
-                    lightmap[i] = lightbuffer[i] * exp; ++i;
-                    lightmap[i] = 255; ++i;
-                }
-                
-                // Copy the lightmap into the allocated rectangle
-                gl.bindTexture(gl.TEXTURE_2D, this.texture);
-                gl.texSubImage2D(gl.TEXTURE_2D, 0, node.x, node.y, width, height * styleCount, gl.RGBA, gl.UNSIGNED_BYTE, lightmap);
-                
-                face.lightmapOffsetX = node.x / LIGHTMAP_SIZE;
-                face.lightmapOffsetY = node.y / LIGHTMAP_SIZE;
-                face.lightmapScaleX = width / LIGHTMAP_SIZE;
-                face.lightmapScaleY = height / LIGHTMAP_SIZE;
-            }
-            return node;
+            return this._allocateRect(width, height, node.nodes[0]);
         }
     },
     
