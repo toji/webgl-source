@@ -56,14 +56,14 @@ var ModelDemoCamera = Object.create(Object, {
         value: true
     },
     
-    _modelViewMat: {
+    _viewMat: {
         value: null
     },
     
-    modelViewMat: {
+    viewMat: {
         get: function() {
             if(this._dirty) {
-                var mv = this._modelViewMat;
+                var mv = this._viewMat;
                 mat4.identity(mv);
                 mat4.translate(mv, [0, 0, -this.distance]);
                 mat4.rotateX(mv, this.orbitX+(Math.PI/2));
@@ -74,7 +74,7 @@ var ModelDemoCamera = Object.create(Object, {
                 this._dirty = false;
             }
             
-            return this._modelViewMat;
+            return this._viewMat;
         }
     },
     
@@ -84,7 +84,7 @@ var ModelDemoCamera = Object.create(Object, {
             
             // Initialize the matricies
             this.projectionMat = mat4.create();
-            this._modelViewMat = mat4.create();
+            this._viewMat = mat4.create();
             
             mat4.perspective(45.0, canvas.width/canvas.height, 1.0, 1000.0, this.projectionMat);
             
@@ -175,14 +175,14 @@ var FlyingDemoCamera = Object.create(Object, {
         value: null
     },
     
-    _modelViewMat: {
+    _viewMat: {
         value: null
     },
     
-    modelViewMat: {
+    viewMat: {
         get: function() {
             if(this._dirty) {
-                var mv = this._modelViewMat;
+                var mv = this._viewMat;
                 mat4.identity(mv);
                 mat4.rotateX(mv, this.angleX-Math.PI/2.0);
                 mat4.rotateZ(mv, this.angleY);
@@ -190,18 +190,18 @@ var FlyingDemoCamera = Object.create(Object, {
                 this._dirty = false;
             }
             
-            return this._modelViewMat;
+            return this._viewMat;
         }
     },
     
     init: {
         value: function(canvas) {
-            this.position = [0, 0, 0];
+            this.position = vec3.create();
             this.pressedKeys = new Array(128);
             
             // Initialize the matricies
             this.projectionMat = mat4.create();
-            this._modelViewMat = mat4.create();
+            this._viewMat = mat4.create();
             this._cameraMat = mat4.create();
             
             mat4.perspective(45.0, canvas.width/canvas.height, 1.0, 10000.0, this.projectionMat);

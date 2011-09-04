@@ -32,36 +32,36 @@
 //=============
 
 // Vertex Shader
-var meshVS = "attribute vec3 position;\n";
-meshVS += "attribute vec2 texture;\n";
-meshVS += "attribute vec2 light;\n";
+var mapVS = "attribute vec3 position;\n";
+mapVS += "attribute vec2 texture;\n";
+mapVS += "attribute vec2 light;\n";
 
-meshVS += "uniform mat4 modelViewMat;\n";
-meshVS += "uniform mat4 projectionMat;\n";
+mapVS += "uniform mat4 viewMat;\n";
+mapVS += "uniform mat4 projectionMat;\n";
 
-meshVS += "varying vec2 texCoord;\n";
-meshVS += "varying vec2 lightCoord;\n";
+mapVS += "varying vec2 texCoord;\n";
+mapVS += "varying vec2 lightCoord;\n";
 
-meshVS += "void main(void) {\n";
-meshVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
-meshVS += " texCoord = texture;\n";
-meshVS += " lightCoord = light;\n";
-meshVS += " gl_Position = projectionMat * vPosition;\n";
-meshVS += "}";
+mapVS += "void main(void) {\n";
+mapVS += " vec4 vPosition = viewMat * vec4(position, 1.0);\n";
+mapVS += " texCoord = texture;\n";
+mapVS += " lightCoord = light;\n";
+mapVS += " gl_Position = projectionMat * vPosition;\n";
+mapVS += "}";
 
 // Fragment Shader
-var meshFS = "uniform sampler2D diffuse;";
-meshFS += "uniform sampler2D lightmap;";
-meshFS += "varying vec2 texCoord;\n";
-meshFS += "varying vec2 lightCoord;\n";
-meshFS += "void main(void) {\n";
-meshFS += " vec4 light = texture2D(lightmap, lightCoord);\n";
-meshFS += " vec4 color = texture2D(diffuse, texCoord);\n";
-meshFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
-meshFS += " gl_FragColor = vec4(color.rgb * (light.rgb + ambient), color.a);\n";
-//meshFS += " gl_FragColor = vec4(light.rgb, 1.0);\n";
-//meshFS += " gl_FragColor = color;\n";
-meshFS += "}";
+var mapFS = "uniform sampler2D diffuse;";
+mapFS += "uniform sampler2D lightmap;";
+mapFS += "varying vec2 texCoord;\n";
+mapFS += "varying vec2 lightCoord;\n";
+mapFS += "void main(void) {\n";
+mapFS += " vec4 light = texture2D(lightmap, lightCoord);\n";
+mapFS += " vec4 color = texture2D(diffuse, texCoord);\n";
+mapFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
+mapFS += " gl_FragColor = vec4(color.rgb * (light.rgb + ambient), color.a);\n";
+//mapFS += " gl_FragColor = vec4(light.rgb, 1.0);\n";
+//mapFS += " gl_FragColor = color;\n";
+mapFS += "}";
 
 //=============
 // BSP Struct
@@ -164,6 +164,15 @@ var QAngle = Struct.create(
     Struct.float32("x"),
     Struct.float32("y"),
     Struct.float32("z")
+);
+
+var ColorRGBExp32 = Struct.create(
+    Struct.uint8("r"), Struct.uint8("g"), Struct.uint8("b"),
+    Struct.int8("exponent")
+);
+
+var CompressedLightCube = Struct.create(
+    Struct.array("m_Color", ColorRGBExp32, 6)
 );
 
 var lump_t = Struct.create(
@@ -270,15 +279,6 @@ var dnode_t = Struct.create(
     Struct.int16("paddding")
 );
 
-var ColorRGBExp32 = Struct.create(
-    Struct.uint8("r"), Struct.uint8("g"), Struct.uint8("b"),
-    Struct.int8("exponent")
-);
-
-var CompressedLightCube = Struct.create(
-    Struct.array("m_Color", ColorRGBExp32, 6)
-);
-
 var dleaf_t = Struct.create(
     Struct.int32("contents"),
     Struct.int16("cluster"),
@@ -291,8 +291,17 @@ var dleaf_t = Struct.create(
     Struct.uint16("firstleafbrush"),
     Struct.uint16("numleafbrushes"),
     Struct.int16("leafWaterDataID"),
-    Struct.struct("ambientLighting", CompressedLightCube),
+    //Struct.struct("ambientLighting", CompressedLightCube),
     Struct.int16("padding")
+);
+
+var dvisheader_t = Struct.create(
+    Struct.int32("numclusters")
+);
+
+var dvis_t = Struct.create(
+    Struct.int32("visofs"),
+    Struct.int32("audofs")
 );
 
 var dbrush_t = Struct.create(
@@ -329,11 +338,11 @@ var StaticPropDictLump_t = Struct.create(
 );
 
 var StaticPropLeafLumpHeader_t = Struct.create(
-	Struct.int32("leafEntries")
+    Struct.int32("leafEntries")
 );
 
 var StaticPropLeafLump_t = Struct.create(
-	Struct.uint16("m_Leaf")
+    Struct.uint16("m_Leaf")
 );
 
 var StaticPropLumpHeader_t = Struct.create(
@@ -356,6 +365,152 @@ var StaticPropLump_t = Struct.create(
     Struct.uint16("m_nMinDXLevel"),
     Struct.uint16("m_nMaxDXLevel")
 );
+
+var SourceBspTree = Object.create(Object, {
+    planes: {
+        value: null
+    },
+    
+    models: {
+        value: null
+    },
+    
+    nodes: {
+        value: null
+    },
+    
+    leaves: {
+        value: null
+    },
+    
+    leafFaces: {
+        value: null
+    },
+    
+    clusterVis: {
+        value: null
+    },
+    
+    numClusters: {
+        value: 0
+    },
+
+    parse: {
+        value: function(buffer, header, planes) {
+            this.planes = this._parseLump(buffer, header.lumps[LUMP_PLANES], dplane_t);
+            this.models = this._parseLump(buffer, header.lumps[LUMP_MODELS], dmodel_t);
+            this.nodes = this._parseLump(buffer, header.lumps[LUMP_NODES], dnode_t);
+            this.leaves = this._parseLump(buffer, header.lumps[LUMP_LEAFS], dleaf_t);
+            
+            var leafFaceLump = header.lumps[LUMP_LEAFFACES];
+            this.leafFaces = new Uint16Array(buffer, leafFaceLump.fileofs, leafFaceLump.filelen/2); // Possible alignment issues here!
+            
+            this._parseVis(buffer, header.lumps[LUMP_VISIBILITY]);
+            
+            return this;
+        }
+    },
+    
+    _parseLump: {
+        value: function(buffer, lump, struct) {
+            return struct.readStructs(buffer, lump.fileofs, lump.filelen/struct.byteLength);
+        }
+    },
+    
+    getLeafId: {
+        value: function(pos) {
+            var model = this.models[0];
+            var index = model.headnode;
+            var node = null;
+            var plane = null;
+            var normal = vec3.create();
+            var dist = 0;
+            
+            // This should be a very fast trace down to the leaf that the given position is located in.
+            while (index >= 0) {
+                node = this.nodes[index];
+                plane = this.planes[node.planenum];
+                normal[0] = plane.normal.x; normal[1] = plane.normal.y; normal[2] = plane.normal.z; // TODO: Not this.
+                
+                dist = vec3.dot(normal, pos) - plane.dist;
+
+                if (dist >= 0) {
+                    index = node.children[0];
+                } else {
+                    index = node.children[1];
+                }
+            }
+
+            return -(index+1);
+        }
+    },
+    
+    getLeafFaces: {
+        value: function(leafId) {
+            var leaf = this.leaves[leafId];
+            return this.leafFaces.subarray(leaf.firstleafface, leaf.firstleafface + leaf.numleaffaces);
+        }
+    },
+    
+    /**
+     * Determine if the given leaf is one that contains visibility information
+     */
+    isVisLeaf: {
+        value: function(leafId) {
+            return this.leaves[leafId].cluster != -1;
+        }
+    },
+    
+    _parseVis: {
+        value: function(buffer, lump) {
+            var offset = lump.fileofs;
+            
+            var visHeader = dvisheader_t.readStructs(buffer, offset, 1)[0];
+            offset += dvisheader_t.byteLength;
+            var numCluster = this.numClusters = visHeader.numclusters;
+            var visOffsets = dvis_t.readStructs(buffer, offset, numCluster);
+            var numBytes = Math.ceil(numCluster / 8);
+            
+            // This is wasting a lot of space, but it's a straightforward method for the time being
+            // TODO: Optimize later
+            var clusterVis = this.clusterVis = new Uint8Array(numCluster * numCluster);
+            for(var i = 0; i < numCluster; ++i) {
+                var rleVis = new Uint8Array(buffer, lump.fileofs + visOffsets[i].visofs, numBytes);
+                var clusterOfs = i * numCluster;
+                var v = 0;
+                
+                // Unpack the RLE visibility bitfield
+                // See code at: http://www.flipcode.com/archives/Quake_2_BSP_File_Format.shtml
+                for (var c = 0; c < numCluster; v++) {
+                   if (rleVis[v] == 0) {
+                      v++;     
+                      c += 8 * rleVis[v];
+                   } else {
+                      for (var bit = 1; bit < 256; bit *= 2, c++) {
+                         if (rleVis[v] & bit) {
+                            clusterVis[clusterOfs + c] = 1;
+                         }
+                      }
+                   }
+                }
+            }
+        }
+    },
+    
+    isLeafVisible: {
+        value: function(fromLeafId, toLeafId) {
+            if(fromLeafId == toLeafId) { return true; } // Leaves are always visible from themselves
+            
+            var fromLeaf = this.leaves[fromLeafId];
+            var toLeaf = this.leaves[toLeafId];
+            
+            if(fromLeaf.cluster == -1 || !toLeaf.cluster == -1) { return false; }
+            
+            return this.clusterVis[(fromLeaf.cluster * this.numClusters) + toLeaf.cluster];
+        }
+    },
+    
+});
 
 var SourceBsp = Object.create(Object, {
     VERTEX_STRIDE: {
@@ -386,6 +541,22 @@ var SourceBsp = Object.create(Object, {
         value: null
     },
     
+    staticPropDict: {
+        value: null
+    },
+    
+    staticProps: {
+        value: null
+    },
+    
+    faces: {
+        value: null
+    },
+    
+    bspTree: {
+        value: null
+    },
+    
     load: {
         value: function(gl, url) {
             this._initializeShaders(gl);
@@ -398,9 +569,11 @@ var SourceBsp = Object.create(Object, {
             bspXhr.addEventListener("load", function() {
                 var bspData = self._parseBsp(this.response);
                 self._processFaces(gl, bspData);
+                self.faces = bspData.faces;
                 self.lockGroups = bspData.lockGroups;
                 
-                self._loadMaterials(gl, bspData);
+                //self._loadMaterials(gl, bspData);
+                //self._loadStaticProps(gl, bspData);
                 self._compileBuffers(gl, bspData);
             });
             bspXhr.send(null);
@@ -416,21 +589,14 @@ var SourceBsp = Object.create(Object, {
             var header = dheader_t.readStructs(buffer, 0, 1)[0];
             
             var bspData = {
-                planes: this._parseLump(buffer, header.lumps[LUMP_PLANES], dplane_t),
                 vertices: this._parseLump(buffer, header.lumps[LUMP_VERTEXES], Vector),
                 edges: this._parseLump(buffer, header.lumps[LUMP_EDGES], dedge_t),
                 faces: this._parseLump(buffer, header.lumps[LUMP_FACES], dface_t),
                 texInfo: this._parseLump(buffer, header.lumps[LUMP_TEXINFO], texinfo_t),
                 texData: this._parseLump(buffer, header.lumps[LUMP_TEXDATA], dtexdata_t),
-                models: this._parseLump(buffer, header.lumps[LUMP_MODELS], dmodel_t),
-                nodes: this._parseLump(buffer, header.lumps[LUMP_NODES], dnode_t),
-                leafs: this._parseLump(buffer, header.lumps[LUMP_LEAFS], dleaf_t),
                 brushes: this._parseLump(buffer, header.lumps[LUMP_BRUSHES], dbrush_t),
                 brushSides: this._parseLump(buffer, header.lumps[LUMP_BRUSHSIDES], dbrushside_t),
             };
-            
-            var leafFaceLump = header.lumps[LUMP_LEAFFACES];
-            bspData.leafFaces = new Uint16Array(buffer, leafFaceLump.fileofs, leafFaceLump.filelen/2); // Possible alignment issues here!
             
             var surfEdgeLump = header.lumps[LUMP_SURFEDGES];
             bspData.surfEdges = new Int32Array(buffer, surfEdgeLump.fileofs, surfEdgeLump.filelen/4); // Possible alignment issues here!
@@ -448,6 +614,8 @@ var SourceBsp = Object.create(Object, {
             bspData.gameLumps = dgamelump_t.readStructs(buffer, gameLumpOffset + dgamelumpheader_t.byteLength, gameLumpHeader.lumpCount);
             
             this._parseGameLumps(buffer, bspData, bspData.gameLumps);
+            
+            this.bspTree = Object.create(SourceBspTree).parse(buffer, header);
             
             return bspData;
         }
@@ -517,6 +685,32 @@ var SourceBsp = Object.create(Object, {
         }
     },
     
+    _loadStaticProps: {
+        value: function(gl, bspData) {
+            this.staticPropDict = bspData.staticPropDict;
+            this.staticProps = bspData.staticProps;
+            
+            for(var propId in bspData.staticPropDict) {
+                var propDict = bspData.staticPropDict[propId];
+                propDict.model = Object.create(SourceModel).load(gl, "root/tf/" + propDict.m_Name);
+            }
+            
+            for(var propId in bspData.staticProps) {
+                var prop = bspData.staticProps[propId];
+                var origin = prop.m_Origin;
+                var angle = prop.m_Angles;
+                
+                var modelMat = mat4.create();
+                mat4.identity(modelMat);
+                mat4.translate(modelMat, [origin.x, origin.y, origin.z]);
+                mat4.rotateX(modelMat, angle.x * (Math.PI/180));
+                mat4.rotateY(modelMat, angle.z * (Math.PI/180));
+                mat4.rotateZ(modelMat, angle.y * (Math.PI/180));
+                prop.modelMat = modelMat;
+            }
+        }
+    },
+    
     _processFaces: {
         value: function(gl, bspData) {
             var vertices = [];
@@ -533,7 +727,7 @@ var SourceBsp = Object.create(Object, {
                 texInfo = bspData.texInfo[face.texinfo];
                 
                 if(texInfo.texdata == -1 ||
-                    face.dispinfo != -1 ||
+                    //face.dispinfo != -1 ||
                     //face.m_NumPrims != 0 || 
                     (texInfo.flags & SURF_SKIP) || 
                     (texInfo.flags & SURF_NODRAW) || 
@@ -600,6 +794,7 @@ var SourceBsp = Object.create(Object, {
                     face.lockGroup = lockGroup;
                     face.indexOffset = lockGroup.indexCount*2;
                     face.indexCount = 0;
+                    face.lightmap = lightmap;
                     
                     if(face.lightofs != -1) {
                         // Load the lighting for this face
@@ -690,9 +885,9 @@ var SourceBsp = Object.create(Object, {
     
     _initializeShaders: {
         value: function(gl) {
-            this.shader = glUtil.createShaderProgram(gl, meshVS, meshFS,
+            this.shader = glUtil.createShaderProgram(gl, mapVS, mapFS,
                 ['position', 'texture', 'light'],
-                ['modelViewMat', 'projectionMat', 'diffuse', 'lightmap']
+                ['viewMat', 'projectionMat', 'diffuse', 'lightmap']
             );
         }
     },
@@ -765,10 +960,13 @@ var SourceBsp = Object.create(Object, {
     },
     
     draw: {
-        value: function(gl, modelViewMat, projectionMat) {
+        value: function(gl, pos, viewMat, projectionMat) {
             var shader = this.shader;
 
             if(!shader || !this.vertBuffer) { return; }
+            
+            var leafId = this.bspTree.getLeafId(pos);
+            document.getElementById("leaf").innerHTML = leafId;
             
             gl.useProgram(shader);
             
@@ -776,7 +974,7 @@ var SourceBsp = Object.create(Object, {
             gl.uniform1i(shader.uniform.diffuse, 0);
             
             gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
-            gl.uniformMatrix4fv(shader.uniform.modelViewMat, false, modelViewMat);
+            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
@@ -789,244 +987,86 @@ var SourceBsp = Object.create(Object, {
             
             var lastLightmap = null;
             
-            // Loop through the locking groups
-            for(var lockGroupId in this.lockGroups) {
-                var lockGroup = this.lockGroups[lockGroupId];
+            if(this.bspTree.isVisLeaf(leafId)) {
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
+                gl.uniform1i(shader.uniform.diffuse, 0);
                 
-                // Draw the mesh
-                gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
-                gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
-                gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
+                var leafCount = this.bspTree.leaves.length;
+                for(var l = 0; l < leafCount; ++l) {
+                    if(!this.bspTree.isLeafVisible(leafId, l)) { continue; }
                 
-                // Loop through each triangle patch within the lock group and render them
-                for(var triPatchId in lockGroup.triPatches) {
-                    var triPatch = lockGroup.triPatches[triPatchId];
-                    
-                    if(triPatch.lightmap !== lastLightmap) {
-                        gl.activeTexture(gl.TEXTURE1);
-                        gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
-                        gl.uniform1i(shader.uniform.lightmap, 1);
-                        lastLightmap = triPatch.lightmap;
-                    }
-                    
-                    var texture = null;
-                    if(triPatch.texData && triPatch.texData.material) {
-                        texture = triPatch.texData.material.texture;
-                    }
-                    if(!texture) {
-                        texture = this.defaultTexture;
-                    }
-                    
-                    gl.activeTexture(gl.TEXTURE0);
-                    gl.bindTexture(gl.TEXTURE_2D, texture);
-                    gl.uniform1i(shader.uniform.diffuse, 0);
-                    
-                    gl.drawElements(gl.TRIANGLES, triPatch.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + triPatch.indexOffset);
-                }
-            }
-        }
-    }
-});
-
-//=================
-// Source Lightmap
-// (A good deal of this is reused from my Quake 2 demo)
-//=================
-
-var LIGHTMAP_SIZE = 512;
-
-var SourceLightmap = Object.create(Object, {
-    // WebGL texture
-    texture: {
-        value: null
-    },
-    
-    // Used to calculate where new texture allocations should take place
-    rectTree: {
-        value: null
-    },
-    
-    init: {
-        value: function(gl) {
-            this.texture = gl.createTexture();
-            gl.bindTexture(gl.TEXTURE_2D, this.texture);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, LIGHTMAP_SIZE, LIGHTMAP_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-            
-            // Set the last few pixels to white (for non-lightmapped faces)
-        	var whitePixels = new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
-        	gl.texSubImage2D(gl.TEXTURE_2D, 0, LIGHTMAP_SIZE-2, LIGHTMAP_SIZE-2, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, whitePixels);
-
-            this.rectTree = {
-                x: 0, 
-                y: 0,
-                width: LIGHTMAP_SIZE, 
-                height: LIGHTMAP_SIZE
-            };
-            
-            return this;
-        }
-    },
-    
-    // Read lightmap from BSP file
-    loadFaceLighting: {
-        value: function(gl, face, lighting, lightingExp) {
-            var width = face.m_LightmapTextureSizeInLuxels[0] + 1;
-            var height = face.m_LightmapTextureSizeInLuxels[1] + 1;
-            
-            if(height <= 0 || width <= 0) { return null; }
-            
-            var styleCount;
-            for(styleCount = 0; styleCount < face.styles.length; styleCount++) { 
-                if(face.styles[styleCount] == 255) { break; }
-            }
-            
-            function clamp(value) {
-                return value > 255 ? 255 : value < 0 ? 0 : value;
-            }
-
-            // Navigate lightmap BSP to find correctly sized space
-            // Allocate room for a 1 pixel border to prevent bleeding from other lightmaps
-            var node = this._allocateRect(width+2, height+2);
-
-            if(node) {
-                // Read the lightmap from the BSP file
-                var byteCount = width * height * 4;
-                var borderedByteCount = (width+2) * (height+2) * 4; // includes border
-                var rowBytes = (width+2) * 4;
+                    var leafFaces = this.bspTree.getLeafFaces(l);
+                    var leafFaceCount = leafFaces.length;
+                    for(var i = 0; i < leafFaceCount; ++i) {
+                        var face = this.faces[leafFaces[i]];
                 
-                var lightmap = new Uint8Array(borderedByteCount);
+                        var lockGroup = face.lockGroup;
+                        if(!lockGroup) { continue; }
                 
-                for(var j = 0; j < styleCount; ++j) {
-                    var lightOffset = face.lightofs + (byteCount*j);
-                    var lightbuffer = lighting.subarray(lightOffset, lightOffset + byteCount);
-                    var expbuffer = lightingExp.subarray(lightOffset + 3, lightOffset + byteCount - 3);
-                    
-                    var i = 0;
-                    
-                    // Fill out the lightmap, minus borders
-                    for(var y = 0; y < height; ++y) {
-                        var o = (rowBytes * (y+1)) + 4;
-                        for(var x = 0; x < width; ++x) {
-                            var exp = Math.pow(2, expbuffer[i]);
-                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
-                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
-                            lightmap[o] = clamp(lightmap[o] + (lightbuffer[i] * exp)); ++i; ++o;
-                            lightmap[o] = 255; ++i; ++o;
+                        // Bind the mesh at the right offset
+                        gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
+                        gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
+                        gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
+                
+                        if(face.lightmap !== lastLightmap) {
+                            gl.activeTexture(gl.TEXTURE1);
+                            gl.bindTexture(gl.TEXTURE_2D, face.lightmap.texture);
+                            gl.uniform1i(shader.uniform.lightmap, 1);
+                            lastLightmap = face.lightmap;
                         }
+                
+                         gl.drawElements(gl.TRIANGLES, face.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + face.indexOffset);
                     }
-                    
-                    // Generate the borders
-                    this._fillBorders(lightmap, width+2, height+2);
                 }
-                
-                // Copy the lightmap into the allocated rectangle
-                gl.bindTexture(gl.TEXTURE_2D, this.texture);
-                gl.texSubImage2D(gl.TEXTURE_2D, 0, node.x, node.y, width+2, height+2, gl.RGBA, gl.UNSIGNED_BYTE, lightmap);
-                
-                face.lightmapOffsetX = (node.x+1) / LIGHTMAP_SIZE;
-                face.lightmapOffsetY = (node.y+1) / LIGHTMAP_SIZE;
-                face.lightmapScaleX = width / LIGHTMAP_SIZE;
-                face.lightmapScaleY = height / LIGHTMAP_SIZE;
-            }
-            return node;
-        }
-    },
-    
-    _fillBorders: {
-        value: function(lightmap, width, height) {
-            var rowBytes = width * 4;
-            var o;
             
-            // Fill in the sides
-            for(var y = 1; y < height-1; ++y) {
-                // left side
-                o = rowBytes * y;
-                lightmap[o] = lightmap[o + 4]; ++o;
-                lightmap[o] = lightmap[o + 4]; ++o;
-                lightmap[o] = lightmap[o + 4]; ++o;
-                lightmap[o] = lightmap[o + 4];
-                
-                // right side
-                o = (rowBytes * (y+1)) - 4;
-                lightmap[o] = lightmap[o - 4]; ++o;
-                lightmap[o] = lightmap[o - 4]; ++o;
-                lightmap[o] = lightmap[o - 4]; ++o;
-                lightmap[o] = lightmap[o - 4];
-            }
-            
-            var end = width * height * 4;
-            
-            // Fill in the top and bottom
-            for(var x = 0; x < rowBytes; ++x) {
-                lightmap[x] = lightmap[x + rowBytes];
-                lightmap[(end-rowBytes) + x] = lightmap[(end-(rowBytes*2) + x)];
-            }
-        }
-    },
-    
-    // Navigate the Lightmap BSP tree and find an empty spot of the right size
-    _allocateRect: {
-        value: function(width, height, node) {
-            if(!node) { node = this.rectTree; }
-            
-            // Check children node
-            if(node.nodes != null) { 
-                var retNode = this._allocateRect(width, height, node.nodes[0]);
-                if(retNode) { return retNode; }
-                return this._allocateRect(width, height, node.nodes[1]);
-            }
-
-            // Already used
-            if(node.filled) { return null; }
-
-            // Too small
-            if(node.width < width || node.height < height) { return null; }
-
-            // Perfect fit. Allocate without splitting
-            if(node.width == width && node.height == height) {
-                node.filled = true;
-                return node;
-            }
-
-            // We need to split if we've reached here
-            var nodes;
-
-            // Which way do we split?
-            if ((node.width - width) > (node.height - height)) {
-                nodes = [
-                    {
-                        x: node.x, y: node.y,
-                        width: width, height: node.height
-                    },
-                    {
-                        x: node.x+width, y: node.y,
-                        width: node.width - width, height: node.height
-                    }
-                ];
             } else {
-                nodes = [
-                    {
-                        x: node.x, y: node.y,
-                        width: node.width, height: height
-                    },
-                    {
-                        x: node.x, y: node.y+height,
-                        width: node.width, height: node.height - height
+                // If we are outside the visibility limiting BSP, render the whole level as effeciently as we can.
+                
+                // Loop through the locking groups
+                for(var lockGroupId in this.lockGroups) {
+                    var lockGroup = this.lockGroups[lockGroupId];
+                
+                    // Draw the mesh
+                    gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
+                    gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
+                    gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
+                
+                    // Loop through each triangle patch within the lock group and render them
+                    for(var triPatchId in lockGroup.triPatches) {
+                        var triPatch = lockGroup.triPatches[triPatchId];
+                    
+                        if(triPatch.lightmap !== lastLightmap) {
+                            gl.activeTexture(gl.TEXTURE1);
+                            gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
+                            gl.uniform1i(shader.uniform.lightmap, 1);
+                            lastLightmap = triPatch.lightmap;
+                        }
+                    
+                        var texture = null;
+                        if(triPatch.texData && triPatch.texData.material) {
+                            texture = triPatch.texData.material.texture;
+                        }
+                        if(!texture) {
+                            texture = this.defaultTexture;
+                        }
+                    
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, texture);
+                        gl.uniform1i(shader.uniform.diffuse, 0);
+                    
+                        gl.drawElements(gl.TRIANGLES, triPatch.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + triPatch.indexOffset);
                     }
-                ];
+                }
             }
-            node.nodes = nodes;
-            return this._allocateRect(width, height, node.nodes[0]);
-        }
-    },
-    
-    // Read lightmap from BSP file
-    finalize: {
-        value: function(gl) {
-            gl.bindTexture(gl.TEXTURE_2D, this.texture);
-            gl.generateMipmap(gl.TEXTURE_2D);
+            
+            /*for(var propId in this.staticProps) {
+                var prop = this.staticProps[propId];
+                var propDict = this.staticPropDict[prop.m_PropType];
+                if(propDict.model) {
+                    propDict.model.draw(gl, viewMat, projectionMat, prop.modelMat);
+                }
+            }*/
         }
     }
 });

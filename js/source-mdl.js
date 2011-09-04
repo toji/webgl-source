@@ -37,13 +37,15 @@ meshVS += "attribute vec2 texCoord;\n";
 meshVS += "attribute vec3 normal;\n";
 meshVS += "attribute vec3 tangent;\n";
 
-meshVS += "uniform mat4 modelViewMat;\n";
+meshVS += "uniform mat4 viewMat;\n";
+meshVS += "uniform mat4 modelMat;\n";
 meshVS += "uniform mat4 projectionMat;\n";
 
 meshVS += "varying vec3 vNormal;\n";
 
 meshVS += "void main(void) {\n";
-meshVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
+meshVS += " mat4 mModelView = viewMat * modelMat;\n";
+meshVS += " vec4 vPosition = mModelView * vec4(position, 1.0);\n";
 meshVS += " gl_Position = projectionMat * vPosition;\n";
 
 meshVS += "	vNormal = normalize(normal);\n";
@@ -303,7 +305,7 @@ var VtxHeader_t = Struct.create( // Listed in optimize.h as FileHeader_t
 
 var SourceModel = Object.create(Object, {
     lod: {
-        value: 2
+        value: 7
     },
     
     vertArray: {
@@ -341,6 +343,8 @@ var SourceModel = Object.create(Object, {
     load: {
         value: function(gl, url) {
             this._initializeShaders(gl);
+            
+            url = url.replace(".mdl", "");
             
             var self = this;
             
@@ -380,7 +384,7 @@ var SourceModel = Object.create(Object, {
         value: function(gl) {
             this.shader = glUtil.createShaderProgram(gl, meshVS, meshFS,
                 ['position', 'texCoord', 'normal', 'tangent'],
-                ['modelViewMat', 'projectionMat']
+                ['viewMat', 'modelMat', 'projectionMat']
             );
         }
     },
@@ -443,6 +447,10 @@ var SourceModel = Object.create(Object, {
     _parseVvd: {
         value: function(buffer, lod) {
             var header = VertexFileHeader_t.readStructs(buffer, 0, 1)[0];
+            
+            if(lod >= header.numLODs) {
+                lod = this.lod = header.numLODs-1;
+            }
             
             this.vertCount = header.numLODVertexes[lod];
             this.vertArray = this._parseFixup(buffer, lod, header.fixupTableStart, header.numFixups, header.vertexDataStart, header.tangentDataStart); 
@@ -606,7 +614,7 @@ var SourceModel = Object.create(Object, {
      */
     
     draw: {
-        value: function(gl, modelViewMat, projectionMat) {
+        value: function(gl, viewMat, projectionMat, modelMat) {
             var shader = this.shader;
             
             if(!shader || !this.vertBuffer) { return; }
@@ -614,7 +622,8 @@ var SourceModel = Object.create(Object, {
             gl.useProgram(shader);
             
             gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
-            gl.uniformMatrix4fv(shader.uniform.modelViewMat, false, modelViewMat);
+            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            gl.uniformMatrix4fv(shader.uniform.modelMat, false, modelMat);
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
@@ -633,7 +642,7 @@ var SourceModel = Object.create(Object, {
             
             gl.drawArrays(gl.POINTS, 0, this.vertCount);
             
-            this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
+            /*this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
                 // Bind the appropriate buffers
                 gl.bindBuffer(gl.ARRAY_BUFFER, stripGroup.vertBuffer);      
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, stripGroup.indexBuffer);
@@ -653,8 +662,8 @@ var SourceModel = Object.create(Object, {
                     gl.drawElements(gl.TRIANGLES, strip.numIndices, gl.UNSIGNED_SHORT, strip.indexOffset * 2);
                 }
                 
-                //return false;
-            }, this.lod);
+                return false;
+            }, this.lod);*/
         }
     }
 });

@@ -13,6 +13,7 @@
         <!-- Source engine specific -->
         <script type="text/javascript" src="js/source-vmt.js"></script>
         <script type="text/javascript" src="js/source-mdl.js"></script>
+        <script type="text/javascript" src="js/source-lightmap.js"></script>
         <script type="text/javascript" src="js/source-bsp.js"></script>
         
         <!-- Main Javascript -->
@@ -63,8 +64,8 @@
                 
                 camera.update(16);
                 
-                //model.draw(gl, modelViewMat, projectionMat);
-                map.draw(gl, camera.modelViewMat, camera.projectionMat);
+                //model.draw(gl, camera.viewMat, camera.projectionMat);
+                map.draw(gl, camera.position, camera.viewMat, camera.projectionMat);
             }
             
             // shim layer with setTimeout fallback
@@ -161,6 +162,7 @@
             </canvas>
             <div id="fps-counter">
                 FPS: <span id="fps">0</span>
+                LeafId: <span id="leaf">0</span>
             </div>
         </div>
     </body>
