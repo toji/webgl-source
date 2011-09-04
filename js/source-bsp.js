@@ -557,11 +557,24 @@ var SourceBsp = Object.create(Object, {
         value: null
     },
     
+    lastLeaf: {
+        value: -1
+    },
+    
+    frameCount: {
+        value: -1
+    },
+    
+    complete: {
+        value: false
+    },
+    
     load: {
         value: function(gl, url) {
             this._initializeShaders(gl);
             
             var self = this;
+            this.complete = false;
             
             var bspXhr = new XMLHttpRequest();
             bspXhr.open('GET', url + ".bsp", true);
@@ -572,9 +585,10 @@ var SourceBsp = Object.create(Object, {
                 self.faces = bspData.faces;
                 self.lockGroups = bspData.lockGroups;
                 
-                //self._loadMaterials(gl, bspData);
+                self._loadMaterials(gl, bspData);
                 //self._loadStaticProps(gl, bspData);
                 self._compileBuffers(gl, bspData);
+                self.complete = true;
             });
             bspXhr.send(null);
             
@@ -782,6 +796,7 @@ var SourceBsp = Object.create(Object, {
                     indexCount: 0,
                     texData: texData,
                     lightmap: lightmap,
+                    renderFrame: -1,
                 };
                 
                 for(var faceId in texData.faces) {
@@ -795,6 +810,7 @@ var SourceBsp = Object.create(Object, {
                     face.indexOffset = lockGroup.indexCount*2;
                     face.indexCount = 0;
                     face.lightmap = lightmap;
+                    face.triPatch = triPatch;
                     
                     if(face.lightofs != -1) {
                         // Load the lighting for this face
@@ -814,6 +830,7 @@ var SourceBsp = Object.create(Object, {
                                 indexCount: 0,
                                 texData: texData,
                                 lightmap: lightmap,
+                                renderFrame: -1,
                             };
                         }
                     }
@@ -961,13 +978,25 @@ var SourceBsp = Object.create(Object, {
     
     draw: {
         value: function(gl, pos, viewMat, projectionMat) {
-            var shader = this.shader;
-
-            if(!shader || !this.vertBuffer) { return; }
+            if(!this.complete) { return; }
             
             var leafId = this.bspTree.getLeafId(pos);
-            document.getElementById("leaf").innerHTML = leafId;
+            var newLeaf = this.lastLeaf != leafId;
+            this.lastLeaf = leafId;
             
+            var frameCount = this.frameCount;
+            var cullFrame = this.bspTree.isVisLeaf(leafId);
+            
+            // Flag all visible triPatches (This only needs to update if we're in a new leaf)
+            if(cullFrame && newLeaf) {
+                frameCount = ++this.frameCount;
+                this._flagVisibleTriPatches(leafId, frameCount);
+            }
+            
+            var shader = this.shader;
+            var lastLightmap = null;
+            
+            // Now we get down to the rendering loop
             gl.useProgram(shader);
             
             gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
@@ -975,88 +1004,50 @@ var SourceBsp = Object.create(Object, {
             
             gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
             gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            
+            // Bind the appropriate buffers
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
             gl.enableVertexAttribArray(shader.attribute.texture);
             gl.enableVertexAttribArray(shader.attribute.light);
             
-            // Bind the appropriate buffers
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            // Loop through the locking groups
+            for(var lockGroupId in this.lockGroups) {
+                var lockGroup = this.lockGroups[lockGroupId];
             
-            var lastLightmap = null;
+                // Draw the mesh
+                gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
+                gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
+                gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
             
-            if(this.bspTree.isVisLeaf(leafId)) {
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
-                gl.uniform1i(shader.uniform.diffuse, 0);
+                // Loop through each triangle patch within the lock group and render them
+                for(var triPatchId in lockGroup.triPatches) {
+                    var triPatch = lockGroup.triPatches[triPatchId];
+                    if(cullFrame && triPatch.renderFrame != frameCount) { continue; }
                 
-                var leafCount = this.bspTree.leaves.length;
-                for(var l = 0; l < leafCount; ++l) {
-                    if(!this.bspTree.isLeafVisible(leafId, l)) { continue; }
-                
-                    var leafFaces = this.bspTree.getLeafFaces(l);
-                    var leafFaceCount = leafFaces.length;
-                    for(var i = 0; i < leafFaceCount; ++i) {
-                        var face = this.faces[leafFaces[i]];
-                
-                        var lockGroup = face.lockGroup;
-                        if(!lockGroup) { continue; }
-                
-                        // Bind the mesh at the right offset
-                        gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
-                        gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
-                        gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
-                
-                        if(face.lightmap !== lastLightmap) {
-                            gl.activeTexture(gl.TEXTURE1);
-                            gl.bindTexture(gl.TEXTURE_2D, face.lightmap.texture);
-                            gl.uniform1i(shader.uniform.lightmap, 1);
-                            lastLightmap = face.lightmap;
-                        }
-                
-                         gl.drawElements(gl.TRIANGLES, face.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + face.indexOffset);
+                    if(triPatch.lightmap !== lastLightmap) {
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
+                        gl.uniform1i(shader.uniform.lightmap, 1);
+                        lastLightmap = triPatch.lightmap;
                     }
-                }
-            
-            } else {
-                // If we are outside the visibility limiting BSP, render the whole level as effeciently as we can.
                 
-                // Loop through the locking groups
-                for(var lockGroupId in this.lockGroups) {
-                    var lockGroup = this.lockGroups[lockGroupId];
-                
-                    // Draw the mesh
-                    gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
-                    gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
-                    gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
-                
-                    // Loop through each triangle patch within the lock group and render them
-                    for(var triPatchId in lockGroup.triPatches) {
-                        var triPatch = lockGroup.triPatches[triPatchId];
-                    
-                        if(triPatch.lightmap !== lastLightmap) {
-                            gl.activeTexture(gl.TEXTURE1);
-                            gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
-                            gl.uniform1i(shader.uniform.lightmap, 1);
-                            lastLightmap = triPatch.lightmap;
-                        }
-                    
-                        var texture = null;
-                        if(triPatch.texData && triPatch.texData.material) {
-                            texture = triPatch.texData.material.texture;
-                        }
-                        if(!texture) {
-                            texture = this.defaultTexture;
-                        }
-                    
-                        gl.activeTexture(gl.TEXTURE0);
-                        gl.bindTexture(gl.TEXTURE_2D, texture);
-                        gl.uniform1i(shader.uniform.diffuse, 0);
-                    
-                        gl.drawElements(gl.TRIANGLES, triPatch.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + triPatch.indexOffset);
+                    var texture = null;
+                    if(triPatch.texData && triPatch.texData.material) {
+                        texture = triPatch.texData.material.texture;
                     }
+                    if(!texture) {
+                        texture = this.defaultTexture;
+                    }
+                
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+                    gl.uniform1i(shader.uniform.diffuse, 0);
+                
+                    gl.drawElements(gl.TRIANGLES, triPatch.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + triPatch.indexOffset);
                 }
             }
             
@@ -1067,6 +1058,28 @@ var SourceBsp = Object.create(Object, {
                     propDict.model.draw(gl, viewMat, projectionMat, prop.modelMat);
                 }
             }*/
+        }
+    },
+    
+    // Trick that was picked up from the Quake Source. We flag the triPatches that need rendering with the current frame number
+    // which avoids reseting all the flags to 0 each frame. Then once the flagging is done, we render all faces that share a material
+    // In a single call 
+    _flagVisibleTriPatches: {
+        value: function(leafId, frame) {
+            var leafCount = this.bspTree.leaves.length;
+            for(var l = 0; l < leafCount; ++l) {
+                if(!this.bspTree.isLeafVisible(leafId, l)) { continue; }
+            
+                var leafFaces = this.bspTree.getLeafFaces(l);
+                var leafFaceCount = leafFaces.length;
+                for(var i = 0; i < leafFaceCount; ++i) {
+                    var face = this.faces[leafFaces[i]];
+                    if(face.triPatch) {
+                        face.triPatch.renderFrame = frame;
+                        // TODO: Is it worthwhile to flag a min/max index here?
+                    }
+                }
+            }
         }
     }
 });
