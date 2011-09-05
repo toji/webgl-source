@@ -147,16 +147,32 @@ var FlyingDemoCamera = Object.create(Object, {
         value: null
     },
     
-    angleX: {
-        value: 0
+    _angles: {
+        value: null
     },
     
-    angleY: {
-        value: 0
+    angles: {
+        get: function() {
+            return this._angles;
+        },
+        set: function(value) {
+            this._angles = value;
+            this._dirty = true;
+        }
+    },
+    
+    _position: {
+        value: null
     },
     
     position: {
-        value: null
+        get: function() {
+            return this._position;
+        },
+        set: function(value) {
+            this._position = value;
+            this._dirty = true;
+        }
     },
     
     speed: {
@@ -184,8 +200,9 @@ var FlyingDemoCamera = Object.create(Object, {
             if(this._dirty) {
                 var mv = this._viewMat;
                 mat4.identity(mv);
-                mat4.rotateX(mv, this.angleX-Math.PI/2.0);
-                mat4.rotateZ(mv, this.angleY);
+                mat4.rotateX(mv, this.angles[0]-Math.PI/2.0);
+                mat4.rotateZ(mv, this.angles[1]);
+                mat4.rotateY(mv, this.angles[2]);
                 mat4.translate(mv, [-this.position[0], -this.position[1], - this.position[2]]);
                 this._dirty = false;
             }
@@ -196,6 +213,7 @@ var FlyingDemoCamera = Object.create(Object, {
     
     init: {
         value: function(canvas) {
+            this.angles = vec3.create();
             this.position = vec3.create();
             this.pressedKeys = new Array(128);
             
@@ -234,17 +252,17 @@ var FlyingDemoCamera = Object.create(Object, {
                     lastX = event.pageX;
                     lastY = event.pageY;
                     
-                    self.angleY += xDelta*0.025;
-                    while (self.angleY < 0)
-                        self.angleY += Math.PI*2;
-                    while (self.angleY >= Math.PI*2)
-                        self.angleY -= Math.PI*2;
+                    self.angles[1] += xDelta*0.025;
+                    while (self.angles[1] < 0)
+                        self.angles[1] += Math.PI*2;
+                    while (self.angles[1] >= Math.PI*2)
+                        self.angles[1] -= Math.PI*2;
 
-                    self.angleX += yDelta*0.025;
-                    while (self.angleX < -Math.PI*0.5)
-                        self.angleX = -Math.PI*0.5;
-                    while (self.angleX > Math.PI*0.5)
-                        self.angleX = Math.PI*0.5;
+                    self.angles[0] += yDelta*0.025;
+                    while (self.angles[0] < -Math.PI*0.5)
+                        self.angles[0] = -Math.PI*0.5;
+                    while (self.angles[0] > Math.PI*0.5)
+                        self.angles[0] = Math.PI*0.5;
                         
                     self._dirty = true;
                 }
@@ -287,8 +305,8 @@ var FlyingDemoCamera = Object.create(Object, {
             if(dir[0] != 0 || dir[1] != 0 || dir[2] != 0) {
                 var cam = this._cameraMat;
                 mat4.identity(cam);
-                mat4.rotateX(cam, this.angleX);
-                mat4.rotateZ(cam, this.angleY);
+                mat4.rotateX(cam, this.angles[0]);
+                mat4.rotateZ(cam, this.angles[1]);
                 mat4.inverse(cam);
 
                 mat4.multiplyVec3(cam, dir);

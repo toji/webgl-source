@@ -13,6 +13,7 @@
         <!-- Source engine specific -->
         <script type="text/javascript" src="js/source-vmt.js"></script>
         <script type="text/javascript" src="js/source-mdl.js"></script>
+        <script type="text/javascript" src="js/source-bsp-struct.js"></script>
         <script type="text/javascript" src="js/source-lightmap.js"></script>
         <script type="text/javascript" src="js/source-bsp.js"></script>
         
@@ -52,7 +53,22 @@
             // Load the collada model
             function initMesh(gl) {
                 //model = Object.create(SourceModel).load(gl, 'root/tf/models/heavy');
-                map = Object.create(SourceBsp).load(gl, 'root/tf/maps/ctf_2fort');
+                map = Object.create(SourceBsp).load(gl, 'root/tf/maps/ctf_2fort', function(map) {
+                    setCameraSpawn(map.entities.info_player_start[0]);
+                });
+                //map = Object.create(SourceBsp).load(gl, 'root/tf/maps/cp_badlands');
+            }
+            
+            function setCameraSpawn(spawnPoint) {
+                camera.position = spawnPoint.origin;
+                camera.angles = spawnPoint.angles;
+                camera.angles[0] *= Math.PI / 180;
+                camera.angles[1] *= Math.PI / 180;
+                camera.angles[2] *= Math.PI / 180;
+                
+                camera.angles[1] += Math.PI / 2; // Rotate by 90deg
+                
+                camera.position[2] += 50;
             }
 
             // Draw a single frame

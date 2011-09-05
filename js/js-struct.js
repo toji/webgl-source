@@ -129,7 +129,7 @@ var Struct = Object.create(Object, {
             code += "       if(char === 0) { break; }\n";
             code += "       str += String.fromCharCode(char);\n";
             code += "   }\n";
-            code += "   return str;\n"
+            code += "   return str;\n";
             code += "})(o);\n";
             return {
                 name: name,
@@ -257,6 +257,23 @@ var Struct = Object.create(Object, {
             Object.defineProperty(struct, "readStructs", { value: parseFunc, configurable: true, writeable: true });
             
             return struct;
+        }
+    },
+     
+    readString: {
+        value: function(buffer, offset, length) {
+            var charBuffer = new Uint8Array(buffer, offset, length);
+            
+            // Hm... any way I can do this?
+            //var str = String.fromCharCode.apply(charBuffer);
+            
+            var str = "";
+            for(var i = 0; i < length; ++i) {
+                var char = charBuffer[i];
+                if(char === 0) { break; }
+                str += String.fromCharCode(char);
+            }
+            return str;
         }
     },
 });
