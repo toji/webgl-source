@@ -149,6 +149,19 @@ var SourceBspTree = Object.create(Object, {
         }
     },
     
+    addPropToLeaf: {
+        value: function(leafId, propId) {
+            var leaf = this.leaves[leafId];
+            leaf.addProp(propId);
+        }
+    },
+    
+    getLeafProps: {
+        value: function(leafId) {
+            return this.leaves[leafId].props;
+        }
+    },
+    
     /**
      * Determine if the given leaf is one that contains visibility information
      */
@@ -288,7 +301,7 @@ var SourceBsp = Object.create(Object, {
                 self.entities = bspData.entities;
                 
                 self._loadMaterials(gl, bspData);
-                //self._loadStaticProps(gl, bspData);
+                self._loadStaticProps(gl, bspData);
                 self._compileBuffers(gl, bspData);
                 self.complete = true;
                 if(callback) { callback(self); }
@@ -315,6 +328,8 @@ var SourceBsp = Object.create(Object, {
                 brushSides: this._parseLump(buffer, header.lumps[LUMP_BRUSHSIDES], dbrushside_t),
             };
             
+            this.bspTree = Object.create(SourceBspTree).parse(buffer, header);
+            
             var surfEdgeLump = header.lumps[LUMP_SURFEDGES];
             bspData.surfEdges = new Int32Array(buffer, surfEdgeLump.fileofs, surfEdgeLump.filelen/4); // Possible alignment issues here!
             
@@ -331,8 +346,6 @@ var SourceBsp = Object.create(Object, {
             bspData.gameLumps = dgamelump_t.readStructs(buffer, gameLumpOffset + dgamelumpheader_t.byteLength, gameLumpHeader.lumpCount);
             
             this._parseGameLumps(buffer, bspData, bspData.gameLumps);
-            
-            this.bspTree = Object.create(SourceBspTree).parse(buffer, header);
             
             bspData.entities = this._parseEntities(buffer, header.lumps[LUMP_ENTITIES]);
             
@@ -460,7 +473,7 @@ var SourceBsp = Object.create(Object, {
                 propDict.model = Object.create(SourceModel).load(gl, "root/tf/" + propDict.m_Name);
             }
             
-            for(var propId in bspData.staticProps) {
+            for(var propId = 0; propId < bspData.staticProps.length; ++propId) {
                 var prop = bspData.staticProps[propId];
                 var origin = prop.m_Origin;
                 var angle = prop.m_Angles;
@@ -472,6 +485,11 @@ var SourceBsp = Object.create(Object, {
                 mat4.rotateY(modelMat, angle.z * (Math.PI/180));
                 mat4.rotateZ(modelMat, angle.y * (Math.PI/180));
                 prop.modelMat = modelMat;
+                
+                var propLastLeaf = prop.m_FirstLeaf + prop.m_LeafCount;
+                for(var i = prop.m_FirstLeaf; i < propLastLeaf; ++i) {
+                    this.bspTree.addPropToLeaf(i, propId);
+                }
             }
         }
     },
@@ -804,6 +822,7 @@ var SourceBsp = Object.create(Object, {
             
             for(var propId in this.staticProps) {
                 var prop = this.staticProps[propId];
+                if(cullFrame && prop.renderFrame != frameCount) { continue; }
                 var propDict = this.staticPropDict[prop.m_PropType];
                 if(propDict.model) {
                     propDict.model.draw(gl, viewMat, projectionMat, prop.modelMat);
@@ -820,7 +839,16 @@ var SourceBsp = Object.create(Object, {
             var leafCount = this.bspTree.leaves.length;
             for(var l = 0; l < leafCount; ++l) {
                 if(!this.bspTree.isLeafVisible(leafId, l)) { continue; }
-            
+                
+                var leafProps = this.bspTree.getLeafProps(l);
+                if(leafProps) {
+                    var leafPropCount = leafProps.length;
+                    for(var i = 0; i < leafPropCount; ++i) {
+                        var prop = this.staticProps[leafProps[i]];
+                        prop.renderFrame = frame;
+                    }
+                }
+                
                 var leafFaces = this.bspTree.getLeafFaces(l);
                 var leafFaceCount = leafFaces.length;
                 for(var i = 0; i < leafFaceCount; ++i) {

@@ -256,7 +256,34 @@ var dleaf_t = Struct.create(
     Struct.uint16("numleafbrushes"),
     Struct.int16("leafWaterDataID"),
     //Struct.struct("ambientLighting", CompressedLightCube),
-    Struct.skip(2) // Pad to 4 byte boundries
+    Struct.skip(2), // Pad to 4 byte boundries
+    {
+        props: {
+            value: null
+        },
+        
+        addProp: {
+            value: function(prop) {
+                if(!this.props) {
+                    this.props = [];
+                }
+                this.props.push(prop);
+            }
+        },
+        
+        triStrips: {
+            value: null
+        },
+        
+        addTriStrip: {
+            value: function(triStrip) {
+                if(!this.triStrips) {
+                    this.triStrips = [];
+                }
+                this.triStrips.push(triStrip);
+            }
+        }
+    }
 );
 
 var dvisheader_t = Struct.create(

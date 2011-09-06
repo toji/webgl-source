@@ -48,8 +48,18 @@ var ModelDemoCamera = Object.create(Object, {
         value: 15
     },
     
-    center: {
+    _center: {
         value: null
+    },
+    
+    center: {
+        get: function() {
+            return this._center;
+        },
+        set: function(value) {
+            this._center = value;
+            this._dirty = true;
+        }
     },
     
     _dirty: {

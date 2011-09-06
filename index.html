@@ -12,6 +12,7 @@
         
         <!-- Source engine specific -->
         <script type="text/javascript" src="js/source-vmt.js"></script>
+        <script type="text/javascript" src="js/source-mdl-struct.js"></script>
         <script type="text/javascript" src="js/source-mdl.js"></script>
         <script type="text/javascript" src="js/source-bsp-struct.js"></script>
         <script type="text/javascript" src="js/source-lightmap.js"></script>
@@ -21,12 +22,8 @@
         <script type="text/javascript">
             "use strict";
             
-            var model, map, currentFrame, lastFrameTime;
+            var model, map;
             var camera;
-            var nullTexture;
-            
-            var zAngle = 0;
-            var xAngle = 0;
             var frame = 0;
 
             // Set up basic GL State up front
