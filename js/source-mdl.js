@@ -70,14 +70,10 @@ mat4.identity(modelIdentityMat);
 
 var SourceModel = Object.create(Object, {
     lod: {
-        value: -1 // -1 will select the lowest level of detail available. 0 the highest
+        value: 6 // -1 will select the lowest level of detail available. 0 the highest
     },
     
     vertArray: {
-        value: null
-    },
-    
-    indexArray: {
         value: null
     },
     
@@ -128,7 +124,6 @@ var SourceModel = Object.create(Object, {
                 vvdXhr.responseType = "arraybuffer";
                 vvdXhr.addEventListener("load", function() {
                     self._parseVvd(this.response, self.lod);
-                    self._initializeVertexBuffer(gl);
                 
                     var vtxXhr = new XMLHttpRequest();
                     vtxXhr.open('GET', url + ".dx90.vtx", true);
@@ -172,7 +167,7 @@ var SourceModel = Object.create(Object, {
             
             this.mdlBodyParts = MStudioBodyParts_t.readStructs(buffer, header.bodypartindex, header.numbodyparts, function(bodyPart, offset) {
                 bodyPart.models = MStudioModel_t.readStructs(buffer, bodyPart.modelindex + offset, bodyPart.nummodels, function(model, offset) {
-                    model.meshes = MStudioMesh_t.readStructs(buffer, model.meshindex + offset, model.nummeshes, function(model, offset) {
+                    model.meshes = MStudioMesh_t.readStructs(buffer, model.meshindex + offset, model.nummeshes, function(mesh, offset) {
                         
                     });
                 });
@@ -184,7 +179,7 @@ var SourceModel = Object.create(Object, {
     
     _setRootLOD: {
         value: function(bodyParts, lod) {
-            var vertexindex = 0;
+            var vertexoffset = 0;
         
             for(var bodyPartId = 0; bodyPartId < bodyParts.length; ++bodyPartId) {
                 var bodyPart = bodyParts[bodyPartId];
@@ -202,8 +197,8 @@ var SourceModel = Object.create(Object, {
                     }
                     
                     model.numvertices = totalMeshVertices;
-                    model.vertexindex = vertexindex;
-                    vertexindex += totalMeshVertices*VERTEX_STRIDE;
+                    model.vertexoffset = vertexoffset;
+                    vertexoffset += totalMeshVertices;
                 }
             }
         }
@@ -275,14 +270,6 @@ var SourceModel = Object.create(Object, {
         }
     },
     
-    _initializeVertexBuffer: {
-        value: function(gl) {
-            this.vertBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, this.vertArray, gl.STATIC_DRAW);
-        }
-    },
-    
     /*
      * VTX File Handling
      */ 
@@ -298,47 +285,93 @@ var SourceModel = Object.create(Object, {
                     model.lods = ModelLODHeader_t.readStructs(buffer, offset + model.lodOffset, model.numLODs, function(lod, offset) {
                         lod.meshes = MeshHeader_t.readStructs(buffer, offset + lod.meshOffset, lod.numMeshes, function(mesh, offset) {
                             mesh.stripGroups = StripGroupHeader_t.readStructs(buffer, offset + mesh.stripGroupHeaderOffset, mesh.numStripGroups, function(stripGroup, offset) {
-                                stripGroup.verts = Vertex_t.readStructs(buffer, offset + stripGroup.vertOffset, stripGroup.numVerts);
                                 stripGroup.strips = StripHeader_t.readStructs(buffer, offset + stripGroup.stripOffset, stripGroup.numStrips);
-                                stripGroup.indexArray = new Uint8Array(buffer, offset + stripGroup.indexOffset, stripGroup.numIndices*2);
+                                stripGroup.verts = Vertex_t.readStructs(buffer, offset + stripGroup.vertOffset, stripGroup.numVerts);
+                                stripGroup.indexArray = new DataView(buffer, offset + stripGroup.indexOffset, stripGroup.numIndices * 2);
                             });
                         });
                     });
                 });
             });
+            
+            //this._calculateVertexOffsets(this.bodyParts, this.lod);
         }
     },
     
-    _buildVertexArray: {
-        value: function(vertTable, offset) {
-            var array = new Uint8Array(vertTable.length * VERTEX_STRIDE);
-            var verts = this.vertArray;
-            
-            var arrayOffset = 0;
-            for(var i = 0; i < vertTable.length; ++i) {
-                var vertsOffset = offset + ((vertTable[i].origMeshVertID) * VERTEX_STRIDE);
-                array.set(verts.subarray(vertsOffset, vertsOffset+VERTEX_STRIDE), arrayOffset);
-                arrayOffset += VERTEX_STRIDE;
+    /*_calculateVertexOffsets: {
+        value: function(bodyParts, targetLod) {
+            var vertexoffset = 0;
+        
+            for(var bodyPartId = 0; bodyPartId < bodyParts.length; ++bodyPartId) {
+                var bodyPart = bodyParts[bodyPartId];
+                
+                for(var modelId = 0; modelId < bodyPart.models.length; ++modelId) {
+                    var model = bodyPart.models[modelId];
+                    var totalModelVertices = 0;  
+                    
+                    for(var lodId = 0; lodId < model.lods.length; ++lodId) {
+                        if(lodId != targetLod) { continue; }
+                        var lod = model.lods[lodId];
+                                   
+                        for(var meshId = 0; meshId < lod.meshes.length; ++meshId) {
+                            var mesh = lod.meshes[meshId];
+                            var totalMeshVertices = 0;  
+                            
+                            for(var stripGroupId in mesh.stripGroups) {
+                                var stripGroup = mesh.stripGroups[stripGroupId];
+                                
+                                totalMeshVertices += stripGroup.numVerts;
+                            }
+
+                            mesh.numvertices = totalMeshVertices;
+                            mesh.vertexoffset = totalModelVertices;
+                            totalModelVertices += mesh.numvertices;
+                        }
+                    }
+                    
+                    model.numvertices = totalModelVertices;
+                    model.vertexoffset = vertexoffset;
+                    vertexoffset += totalModelVertices;
+                }
             }
+        }
+    },*/
+    
+    _buildIndices: {
+        value: function() {
+            var indexCount = 0;
+            this._iterateStripGroups(function(stripGroup) {
+                indexCount +=  stripGroup.numIndices;
+            }, this.lod);
             
-            return array;
+            var indices = new Uint16Array(indexCount);
+            var indexOffset = 0;
+            var vertTableIndex;
+            this._iterateStripGroups(function(stripGroup, mesh, model) {
+                var vertTable = stripGroup.verts;
+                stripGroup.indexOffset = indexOffset;
+                for(var i = 0; i < stripGroup.numIndices; ++i) {
+                    vertTableIndex = stripGroup.indexArray.getUint16(i*2, true);
+                    var index = vertTable[vertTableIndex].origMeshVertID + model.vertexoffset;
+                    indices[indexOffset++] = index;
+                }
+            }, this.lod);
+            
+            return indices;
         }
     },
     
     _initializeBuffers: {
         value: function(gl) {
-            var self = this;
-            this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
-                var vertArray = self._buildVertexArray(stripGroup.verts, model.vertexindex);
-                
-                stripGroup.vertBuffer = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, stripGroup.vertBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, vertArray, gl.STATIC_DRAW);
-                     
-                stripGroup.indexBuffer = gl.createBuffer();
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, stripGroup.indexBuffer);
-                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, stripGroup.indexArray, gl.STATIC_DRAW);
-            }, this.lod);
+            var indexArray = this._buildIndices();
+            
+            this.vertBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, this.vertArray, gl.STATIC_DRAW);
+            
+            this.indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
         }
     },
     
@@ -416,6 +449,7 @@ var SourceModel = Object.create(Object, {
             
             // Bind the appropriate buffers
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
 
             // Draw the mesh
             gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, VERTEX_STRIDE, 16);
@@ -425,28 +459,24 @@ var SourceModel = Object.create(Object, {
             
             gl.drawArrays(gl.POINTS, 0, this.vertCount);
             
-            /*this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
-                // Bind the appropriate buffers
-                gl.bindBuffer(gl.ARRAY_BUFFER, stripGroup.vertBuffer);      
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, stripGroup.indexBuffer);
-                
+            this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
                 for(var stripId in stripGroup.strips) {
                     var strip = stripGroup.strips[stripId];
-                    var vertexOffset = strip.vertOffset * VERTEX_STRIDE;
+                    /*var vertexOffset = strip.vertOffset * VERTEX_STRIDE;
                     
                     // Draw the triangle strip
                     gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 16);
                     gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, true, VERTEX_STRIDE, vertexOffset + 28);
                     gl.vertexAttribPointer(shader.attribute.texCoord, 2, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 40);
-                    gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 48);
+                    gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 48);*/
                     
                     //gl.drawArrays(gl.POINTS, 0, strip.numVerts);
 
-                    gl.drawElements(gl.TRIANGLES, strip.numIndices, gl.UNSIGNED_SHORT, strip.indexOffset * 2);
+                    gl.drawElements(gl.TRIANGLES, strip.numIndices, gl.UNSIGNED_SHORT, (stripGroup.indexOffset + strip.indexOffset) * 2);
                 }
                 
-                return false;
-            }, this.lod);*/
+                //return false;
+            }, this.lod);
         }
     }
 });

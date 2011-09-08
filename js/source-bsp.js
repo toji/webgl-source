@@ -481,9 +481,11 @@ var SourceBsp = Object.create(Object, {
                 var modelMat = mat4.create();
                 mat4.identity(modelMat);
                 mat4.translate(modelMat, [origin.x, origin.y, origin.z]);
-                mat4.rotateX(modelMat, angle.x * (Math.PI/180));
-                mat4.rotateY(modelMat, angle.z * (Math.PI/180));
+                
                 mat4.rotateZ(modelMat, angle.y * (Math.PI/180));
+                mat4.rotateX(modelMat, angle.z * (Math.PI/180));
+                mat4.rotateY(modelMat, angle.x * (Math.PI/180));
+                
                 prop.modelMat = modelMat;
                 
                 var propLastLeaf = prop.m_FirstLeaf + prop.m_LeafCount;
