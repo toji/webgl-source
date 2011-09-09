@@ -262,16 +262,29 @@ var Struct = Object.create(Object, {
      
     readString: {
         value: function(buffer, offset, length) {
-            var charBuffer = new Uint8Array(buffer, offset, length);
+            var str = "", charBuffer;
             
             // Hm... any way I can do this?
             //var str = String.fromCharCode.apply(charBuffer);
             
-            var str = "";
-            for(var i = 0; i < length; ++i) {
-                var char = charBuffer[i];
-                if(char === 0) { break; }
-                str += String.fromCharCode(char);
+            if(length) {
+                charBuffer = new Uint8Array(buffer, offset, length);
+                
+                for(var i = 0; i < length; ++i) {
+                    var char = charBuffer[i];
+                    if(char === 0) { break; }
+                    str += String.fromCharCode(char);
+                }
+            } else {
+                // If no length is specified, read till we hit a NULL char
+                charBuffer = new Uint8Array(buffer, offset);
+                
+                var i = 0;
+                while(true) {
+                    var char = charBuffer[i++];
+                    if(char === 0) { break; }
+                    str += String.fromCharCode(char);
+                }
             }
             return str;
         }

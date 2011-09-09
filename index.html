@@ -41,6 +41,10 @@
                 gl.enable(gl.BLEND);
                 gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
                 
+                gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+                
+                glUtil.loadDefaultTexture(gl, "root/no-shader.jpg");
+                
                 camera = Object.create(FlyingDemoCamera).init(canvas);
                 camera.speed = 750;
                 

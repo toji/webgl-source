@@ -136,4 +136,12 @@ var glUtil = Object.create(Object, {
             return texture;
         }
     },
+    
+    loadDefaultTexture: {
+        value: function(gl, src) {
+            if(this.defaultTexture) { return; }
+            
+            this.defaultTexture = this.loadTexture(gl, src);
+        }
+    }
 });

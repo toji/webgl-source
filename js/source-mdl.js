@@ -33,7 +33,7 @@
 
 // Vertex Shader
 var meshVS = "attribute vec3 position;\n";
-meshVS += "attribute vec2 texCoord;\n";
+meshVS += "attribute vec2 texture;\n";
 meshVS += "attribute vec3 normal;\n";
 meshVS += "attribute vec3 tangent;\n";
 
@@ -41,28 +41,34 @@ meshVS += "uniform mat4 viewMat;\n";
 meshVS += "uniform mat4 modelMat;\n";
 meshVS += "uniform mat4 projectionMat;\n";
 
+meshVS += "varying vec2 texCoord;\n";
 meshVS += "varying vec3 vNormal;\n";
 
 meshVS += "void main(void) {\n";
 meshVS += " mat4 mModelView = viewMat * modelMat;\n";
 meshVS += " vec4 vPosition = mModelView * vec4(position, 1.0);\n";
 meshVS += " gl_Position = projectionMat * vPosition;\n";
+meshVS += " texCoord = texture;\n";
 
 meshVS += " vNormal = normalize(normal);\n";
 meshVS += "}";
 
 // Fragment Shader
-var meshFS = "";
+var meshFS = "uniform sampler2D diffuse;";
 meshFS += "varying vec3 vNormal;\n";
+meshFS += "varying vec2 texCoord;\n";
 
 meshFS += "void main(void) {\n";
 meshFS += " vec3 lightColor = vec3(1.0, 1.0, 1.0);\n"
 meshFS += " vec3 lightDir = vec3(1.0, 1.0, 1.0);\n"
 meshFS += " vec3 normal = normalize(vNormal);\n";
+meshFS += " vec4 color = texture2D(diffuse, texCoord);\n";
 
 meshFS += " float lightFactor = max(dot(lightDir, normal), 0.0);\n";
 meshFS += " vec3 lightValue = vec3(0.05, 0.05, 0.05) + (lightColor * lightFactor);\n";
-meshFS += " gl_FragColor = vec4(lightValue, 1.0);\n";
+meshFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
+meshFS += " gl_FragColor = vec4(color.rgb * (lightValue.rgb + ambient), color.a);\n";
+//meshFS += " gl_FragColor = vec4(texCoord.r, 0, texCoord.g, 1.0);\n";
 meshFS += "}";
 
 var modelIdentityMat = mat4.create();
@@ -70,7 +76,7 @@ mat4.identity(modelIdentityMat);
 
 var SourceModel = Object.create(Object, {
     lod: {
-        value: 6 // -1 will select the lowest level of detail available. 0 the highest
+        value: 1 // -1 will select the lowest level of detail available. 0 the highest
     },
     
     vertArray: {
@@ -101,6 +107,10 @@ var SourceModel = Object.create(Object, {
         value: 0
     },
     
+    textures: {
+        value: null
+    },
+    
     load: {
         value: function(gl, url, lod) {
             this._initializeShaders(gl);
@@ -117,7 +127,9 @@ var SourceModel = Object.create(Object, {
             mdlXhr.open('GET', url + ".mdl", true);
             mdlXhr.responseType = "arraybuffer";
             mdlXhr.addEventListener("load", function() {
-                self._parseMdl(this.response);
+                self.textures = self._parseMdl(this.response);
+                
+                self._loadMaterials(gl, self.textures);
                 
                 var vvdXhr = new XMLHttpRequest();
                 vvdXhr.open('GET', url + ".vvd", true);
@@ -147,9 +159,20 @@ var SourceModel = Object.create(Object, {
     _initializeShaders: {
         value: function(gl) {
             this.shader = glUtil.createShaderProgram(gl, meshVS, meshFS,
-                ['position', 'texCoord', 'normal', 'tangent'],
-                ['viewMat', 'modelMat', 'projectionMat']
+                ['position', 'texture', 'normal', 'tangent'],
+                ['viewMat', 'modelMat', 'projectionMat', 'diffuse']
             );
+        }
+    },
+    
+    _loadMaterials: {
+        value: function(gl, textures) {
+            for(var textureId in textures) {
+                var texture = textures[textureId];
+                var materialName = texture.textureName;
+                
+                texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/" + materialName);
+            }
         }
     },
     
@@ -161,8 +184,8 @@ var SourceModel = Object.create(Object, {
         value: function(buffer) {
             var header = StudioHdr_t.readStructs(buffer, 0, 1)[0];
             
-            var textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(bodyPart, offset) {
-                
+            var textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(texture, offset) {
+                texture.readTextureName(buffer, offset);
             });
             
             this.mdlBodyParts = MStudioBodyParts_t.readStructs(buffer, header.bodypartindex, header.numbodyparts, function(bodyPart, offset) {
@@ -174,6 +197,8 @@ var SourceModel = Object.create(Object, {
             });
             
             this._setRootLOD(this.mdlBodyParts, this.lod);
+            
+            return textures;
         }
     },
     
@@ -443,7 +468,7 @@ var SourceModel = Object.create(Object, {
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
-            gl.enableVertexAttribArray(shader.attribute.texCoord);
+            gl.enableVertexAttribArray(shader.attribute.texture);
             gl.enableVertexAttribArray(shader.attribute.normal);
             gl.enableVertexAttribArray(shader.attribute.tangent);
             
@@ -454,12 +479,27 @@ var SourceModel = Object.create(Object, {
             // Draw the mesh
             gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, VERTEX_STRIDE, 16);
             gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, true, VERTEX_STRIDE, 28);
-            gl.vertexAttribPointer(shader.attribute.texCoord, 2, gl.FLOAT, false, VERTEX_STRIDE, 40);
+            gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, VERTEX_STRIDE, 40);
             gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, 48);
             
             gl.drawArrays(gl.POINTS, 0, this.vertCount);
             
+            gl.activeTexture(gl.TEXTURE0);
+            gl.uniform1i(shader.uniform.diffuse, 0);
+            
+            var self = this;
+            var lastTexture = null;
             this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
+                var material = self.textures[mesh.material].material;
+                
+                var texture = material.texture;
+                
+                if(!texture) { texture = glUtil.defaultTexture; }
+                
+                if(texture != lastTexture) {
+                    gl.bindTexture(gl.TEXTURE_2D, texture);
+                }
+                
                 for(var stripId in stripGroup.strips) {
                     var strip = stripGroup.strips[stripId];
                     /*var vertexOffset = strip.vertOffset * VERTEX_STRIDE;

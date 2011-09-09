@@ -100,7 +100,25 @@ var MStudioTexture_t = Struct.create(
     Struct.int32("sznameindex"),
     Struct.int32("flags"),
     Struct.int32("used"),
-    Struct.skip(52)
+    Struct.skip(52),
+    {
+        material: {
+            value: null
+        },
+        textureName: {
+            value: null
+        },
+        readTextureName: {
+            value: function(buffer, offset) {
+                this.textureName = Struct.readString(buffer, offset + this.sznameindex);
+            }
+        }
+    }
+);
+
+var MStudioModelGroup_t = Struct.create(
+    Struct.int32("szlabelindex"),
+    Struct.int32("sznameindex")
 );
 
 var StudioHdr_t = Struct.create( // This is the header for the MDL file (AKA: The giant header of DOOOOOOOOM!!)

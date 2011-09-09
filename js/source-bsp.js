@@ -235,10 +235,6 @@ var SourceBsp = Object.create(Object, {
         value: null
     },
     
-    defaultTexture: {
-        value: null
-    },
-    
     lockGroups: {
         value: null
     },
@@ -307,8 +303,6 @@ var SourceBsp = Object.create(Object, {
                 if(callback) { callback(self); }
             });
             bspXhr.send(null);
-            
-            this.defaultTexture = glUtil.loadTexture(gl, "root/no-shader.jpg");
 
             return this;
         }
@@ -490,7 +484,7 @@ var SourceBsp = Object.create(Object, {
                 
                 var propLastLeaf = prop.m_FirstLeaf + prop.m_LeafCount;
                 for(var i = prop.m_FirstLeaf; i < propLastLeaf; ++i) {
-                    this.bspTree.addPropToLeaf(i, propId);
+                    this.bspTree.addPropToLeaf(bspData.staticPropLeaves[i].m_Leaf, propId);
                 }
             }
         }
@@ -811,7 +805,7 @@ var SourceBsp = Object.create(Object, {
                         texture = triPatch.texData.material.texture;
                     }
                     if(!texture) {
-                        texture = this.defaultTexture;
+                        texture = glUtil.defaultTexture;
                     }
                 
                     gl.activeTexture(gl.TEXTURE0);
@@ -824,7 +818,7 @@ var SourceBsp = Object.create(Object, {
             
             for(var propId in this.staticProps) {
                 var prop = this.staticProps[propId];
-                if(cullFrame && prop.renderFrame != frameCount) { continue; }
+                if(!cullFrame || prop.renderFrame != frameCount) { continue; }
                 var propDict = this.staticPropDict[prop.m_PropType];
                 if(propDict.model) {
                     propDict.model.draw(gl, viewMat, projectionMat, prop.modelMat);
