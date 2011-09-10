@@ -116,6 +116,20 @@ var MStudioTexture_t = Struct.create(
     }
 );
 
+var MStudioTextureDir_t = Struct.create(
+    Struct.int32("diroffset"),
+    {
+        textureDir: {
+            value: null
+        },
+        readTextureDir: {
+            value: function(buffer, offset) {
+                this.textureDir = Struct.readString(buffer, offset + this.diroffset);
+            }
+        }
+    }
+);
+
 var MStudioModelGroup_t = Struct.create(
     Struct.int32("szlabelindex"),
     Struct.int32("sznameindex")

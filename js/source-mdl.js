@@ -111,6 +111,10 @@ var SourceModel = Object.create(Object, {
         value: null
     },
     
+    textureDirs: {
+        value: null
+    },
+    
     load: {
         value: function(gl, url, lod) {
             this._initializeShaders(gl);
@@ -171,7 +175,7 @@ var SourceModel = Object.create(Object, {
                 var texture = textures[textureId];
                 var materialName = texture.textureName;
                 
-                texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/" + materialName);
+                texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/", this.textureDirs, materialName);
             }
         }
     },
@@ -186,6 +190,12 @@ var SourceModel = Object.create(Object, {
             
             this.textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(texture, offset) {
                 texture.readTextureName(buffer, offset);
+            });
+            
+            var textureDirs = this.textureDirs = [];
+            MStudioTextureDir_t.readStructs(buffer, header.cdtextureindex, header.numcdtextures, function(textureDir, offset) {
+                textureDir.readTextureDir(buffer, 0);
+                textureDirs.push(textureDir.textureDir);
             });
             
             this.mdlBodyParts = MStudioBodyParts_t.readStructs(buffer, header.bodypartindex, header.numbodyparts, function(bodyPart, offset) {

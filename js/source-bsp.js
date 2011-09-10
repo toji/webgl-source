@@ -683,7 +683,7 @@ var SourceBsp = Object.create(Object, {
                 // Only load materials that will have visible faces
                 // Note: This must run after _processFaces
                 if(texData.faces) {
-                    texData.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/" + materialName);
+                    texData.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/", materialName);
                 }
             }
         }
