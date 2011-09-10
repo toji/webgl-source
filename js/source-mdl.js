@@ -127,7 +127,7 @@ var SourceModel = Object.create(Object, {
             mdlXhr.open('GET', url + ".mdl", true);
             mdlXhr.responseType = "arraybuffer";
             mdlXhr.addEventListener("load", function() {
-                self.textures = self._parseMdl(this.response);
+                self._parseMdl(this.response);
                 
                 self._loadMaterials(gl, self.textures);
                 
@@ -184,7 +184,7 @@ var SourceModel = Object.create(Object, {
         value: function(buffer) {
             var header = StudioHdr_t.readStructs(buffer, 0, 1)[0];
             
-            var textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(texture, offset) {
+            this.textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(texture, offset) {
                 texture.readTextureName(buffer, offset);
             });
             
@@ -196,14 +196,18 @@ var SourceModel = Object.create(Object, {
                 });
             });
             
-            this._setRootLOD(this.mdlBodyParts, this.lod);
-            
-            return textures;
+            this._setRootLOD(header, this.mdlBodyParts, this.lod);
         }
     },
     
     _setRootLOD: {
-        value: function(bodyParts, lod) {
+        value: function(header, bodyParts, rootLOD) {
+            
+            if(header.numAllowedRootLODs > 0 && rootLOD >= header.numAllowedRootLODs)
+            {
+                rootLOD = header.numAllowedRootLODs - 1;
+            }
+            
             var vertexoffset = 0;
         
             for(var bodyPartId = 0; bodyPartId < bodyParts.length; ++bodyPartId) {
@@ -216,7 +220,7 @@ var SourceModel = Object.create(Object, {
                     for(var meshId = 0; meshId < model.meshes.length; ++meshId) {
                         var mesh = model.meshes[meshId];
                         
-                        mesh.numvertices = mesh.vertexdata.numLODVertexes[lod];
+                        mesh.numvertices = mesh.vertexdata.numLODVertexes[rootLOD];
                         mesh.vertexoffset = totalMeshVertices;
                         totalMeshVertices += mesh.numvertices;
                     }
@@ -226,6 +230,8 @@ var SourceModel = Object.create(Object, {
                     vertexoffset += totalMeshVertices;
                 }
             }
+            
+            this.lod = rootLOD;
         }
     },
     
@@ -377,7 +383,7 @@ var SourceModel = Object.create(Object, {
                 stripGroup.indexOffset = indexOffset;
                 for(var i = 0; i < stripGroup.numIndices; ++i) {
                     vertTableIndex = stripGroup.indexArray.getUint16(i*2, true);
-                    var index = vertTable[vertTableIndex].origMeshVertID + model.vertexoffset;
+                    var index = vertTable[vertTableIndex].origMeshVertID + model.vertexoffset + mesh.vertexoffset;
                     indices[indexOffset++] = index;
                 }
             }, this.lod);
@@ -482,7 +488,7 @@ var SourceModel = Object.create(Object, {
             gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, VERTEX_STRIDE, 40);
             gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, 48);
             
-            gl.drawArrays(gl.POINTS, 0, this.vertCount);
+            //gl.drawArrays(gl.POINTS, 0, this.vertCount);
             
             gl.activeTexture(gl.TEXTURE0);
             gl.uniform1i(shader.uniform.diffuse, 0);
@@ -502,16 +508,6 @@ var SourceModel = Object.create(Object, {
                 
                 for(var stripId in stripGroup.strips) {
                     var strip = stripGroup.strips[stripId];
-                    /*var vertexOffset = strip.vertOffset * VERTEX_STRIDE;
-                    
-                    // Draw the triangle strip
-                    gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 16);
-                    gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, true, VERTEX_STRIDE, vertexOffset + 28);
-                    gl.vertexAttribPointer(shader.attribute.texCoord, 2, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 40);
-                    gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, vertexOffset + 48);*/
-                    
-                    //gl.drawArrays(gl.POINTS, 0, strip.numVerts);
-
                     gl.drawElements(gl.TRIANGLES, strip.numIndices, gl.UNSIGNED_SHORT, (stripGroup.indexOffset + strip.indexOffset) * 2);
                 }
                 
