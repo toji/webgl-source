@@ -142,6 +142,7 @@ var glUtil = Object.create(Object, {
             if(this.defaultTexture) { return; }
             
             this.defaultTexture = this.loadTexture(gl, src);
+            this.defaultBumpTexture = this.createSolidTexture(gl, [0, 0, 255]);
         }
     }
 });

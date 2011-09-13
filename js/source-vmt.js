@@ -141,6 +141,10 @@ var SourceMaterial = Object.create(Object, {
                     case "$basetexture": {
                         material.basetexture = tokens.next();
                     } break;
+                    
+                    case "$bumpmap": {
+                        material.bumpmap = tokens.next();
+                    } break;
                 }
             }
             
@@ -177,8 +181,13 @@ var SourceMaterial = Object.create(Object, {
                     self.texture = texture;
                 });
             }
+            
+            if(material.bumpmap) {
+                glUtil.loadTexture(gl, rootUrl + "/" + material.bumpmap + ".png", function(texture) {
+                    self.bump = texture;
+                });
+            }
         }
     }
-    
 });
 

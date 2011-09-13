@@ -106,8 +106,8 @@
                 var canvas = document.getElementById('viewport');
                 
                 // Fit the canvas to the document
-                canvas.width = document.width;
-                canvas.height = document.height;
+                canvas.width = 854; //document.width;
+                canvas.height = 480; //document.height;
                 
                 // Get the GL Context
                 var gl = glUtil.getContext(canvas);
@@ -141,6 +141,8 @@
         <style type="text/css">
             body {
                 font: 0.8em Verdana,sans-serif;
+                text-align: center;
+                background-color: black;
             }
             
             #fps-counter {
@@ -160,11 +162,7 @@
             }
             
             canvas {
-                position: absolute;
-                cursor: move;
-                top: 0;
-                left: 0;
-                text-align: center;
+                margin-top: 20px;
             }
         </style>
     </head>

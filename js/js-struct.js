@@ -289,4 +289,93 @@ var Struct = Object.create(Object, {
             return str;
         }
     },
+    
+    // I wonder if there's a more efficent way to do this that doesn't run afoul the offset restrictions of TypedArrays
+    readInt8Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Int8Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getInt8(i, true);
+            }
+            return array;
+        }
+    },
+    
+    readUint8Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Uint8Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getUint8(i, true);
+            }
+            return array;
+        }
+    },
+    
+    readInt16Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Int16Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getInt16(i*2, true);
+            }
+            return array;
+        }
+    },
+    
+    readUint16Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Uint16Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getUint16(i*2, true);
+            }
+            return array;
+        }
+    },
+    
+    readInt32Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Int32Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getInt32(i*4, true);
+            }
+            return array;
+        }
+    },
+    
+    readUint32Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Uint32Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getUint32(i*4, true);
+            }
+            return array;
+        }
+    },
+    
+    readFloat32Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Float32Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getFloat32(i*4, true);
+            }
+            return array;
+        }
+    },
+    
+    readFloat64Array: {
+        value: function(buffer, offset, elements) {
+            var array = new Float64Array(elements);
+            var v = new DataView(buffer, offset);
+            for(var i = 0; i < elements; ++i) {
+                array[i] = v.getFloat64(i*8, true);
+            }
+            return array;
+        }
+    },
 });

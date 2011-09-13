@@ -1,0 +1,15 @@
+TODO Items For demo: (Must have!)
+    - Improve material parsing (Normal Maps, etc)
+    - Implement displacement surfaces
+    - Figure out something for water
+    - Skybox
+    - Collision detection
+    
+Ideas/Optimizations:
+    - Load all data in Web Workers
+    - Group mesh verts/indicies into buffers before sending to GPU
+    - Pre-sort props by buffer/shader/texture/etc
+    - Material management system (don't double-load, limit uploads)
+    
+Questions:
+    - How do we handle sorting of transparent surfaces?

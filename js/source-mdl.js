@@ -35,44 +35,71 @@
 var meshVS = "attribute vec3 position;\n";
 meshVS += "attribute vec2 texture;\n";
 meshVS += "attribute vec3 normal;\n";
-meshVS += "attribute vec3 tangent;\n";
+meshVS += "attribute vec4 tangent;\n";
 
-meshVS += "uniform mat4 viewMat;\n";
-meshVS += "uniform mat4 modelMat;\n";
+meshVS += "uniform mat4 modelViewMat;\n";
+meshVS += "uniform mat3 normalMat;\n";
 meshVS += "uniform mat4 projectionMat;\n";
 
-meshVS += "varying vec2 texCoord;\n";
-meshVS += "varying vec3 vNormal;\n";
+meshVS += "varying vec2 vTexCoord;\n";
+meshVS += "varying vec3 tangentLightDir;\n";
+meshVS += "varying vec3 tangentEyeDir;\n";
 
 meshVS += "void main(void) {\n";
-meshVS += " mat4 mModelView = viewMat * modelMat;\n";
-meshVS += " vec4 vPosition = mModelView * vec4(position, 1.0);\n";
+meshVS += " vec3 lightPos = (modelViewMat * vec4(100.0, 100.0, 100.0, 1.0)).xyz;\n";
+meshVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
 meshVS += " gl_Position = projectionMat * vPosition;\n";
-meshVS += " texCoord = texture;\n";
 
-meshVS += " vNormal = normalize(normal);\n";
+meshVS += " vTexCoord = texture;\n";
+
+meshVS += " vec3 n = normalize(normal * normalMat);\n";
+meshVS += " vec3 t = normalize(tangent.xyz * normalMat);\n";
+meshVS += " vec3 b = cross (n, t) * tangent.w;\n";
+
+meshVS += " vec3 lightDir = lightPos - vPosition.xyz;\n";
+meshVS += " tangentLightDir.x = dot(lightDir, t);\n";
+meshVS += " tangentLightDir.y = dot(lightDir, b);\n";
+meshVS += " tangentLightDir.z = dot(lightDir, n);\n";
+
+meshVS += " vec3 eyeDir = normalize(-vPosition.xyz);\n";
+meshVS += " tangentEyeDir.x = dot(eyeDir, t);\n";
+meshVS += " tangentEyeDir.y = dot(eyeDir, b);\n";
+meshVS += " tangentEyeDir.z = dot(eyeDir, n);\n";
+
 meshVS += "}";
 
 // Fragment Shader
-var meshFS = "uniform sampler2D diffuse;";
-meshFS += "varying vec3 vNormal;\n";
-meshFS += "varying vec2 texCoord;\n";
+var meshFS = "uniform sampler2D diffuse;\n";
+meshFS += "uniform sampler2D bump;\n";
+
+meshFS += "varying vec2 vTexCoord;\n";
+meshFS += "varying vec3 tangentLightDir;\n";
+meshFS += "varying vec3 tangentEyeDir;\n";
 
 meshFS += "void main(void) {\n";
-meshFS += " vec3 lightColor = vec3(1.0, 1.0, 1.0);\n"
-meshFS += " vec3 lightDir = vec3(1.0, 1.0, 1.0);\n"
-meshFS += " vec3 normal = normalize(vNormal);\n";
-meshFS += " vec4 color = texture2D(diffuse, texCoord);\n";
+meshFS += " vec3 lightColor = vec3(1.0, 1.0, 1.0);\n";
+meshFS += " vec3 specularColor = vec3(1.0, 1.0, 1.0);\n";
+meshFS += " float shininess = 8.0;\n";
+meshFS += " vec3 ambientLight = vec3(0.15, 0.15, 0.15);\n"; 
+
+meshFS += " vec3 lightDir = normalize(tangentLightDir);\n"
+meshFS += " vec3 normal = normalize(2.0 * (texture2D(bump, vTexCoord.st).rgb - 0.5));\n"
+meshFS += " vec4 diffuseColor = texture2D(diffuse, vTexCoord.st);\n";
+
+meshFS += " vec3 eyeDir = normalize(tangentEyeDir);\n"
+meshFS += " vec3 reflectDir = reflect(-lightDir, normal);\n"
+meshFS += " float specularFactor = pow(clamp(dot(reflectDir, eyeDir), 0.0, 1.0), shininess) * 1.0; // Specular Level\n"
 
 meshFS += " float lightFactor = max(dot(lightDir, normal), 0.0);\n";
-meshFS += " vec3 lightValue = vec3(0.05, 0.05, 0.05) + (lightColor * lightFactor);\n";
-meshFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
-meshFS += " gl_FragColor = vec4(color.rgb * (lightValue.rgb + ambient), color.a);\n";
-//meshFS += " gl_FragColor = vec4(texCoord.r, 0, texCoord.g, 1.0);\n";
+meshFS += " vec3 lightValue = ambientLight + (lightColor * lightFactor) + (specularColor * specularFactor);\n";
+meshFS += " gl_FragColor = vec4(diffuseColor.rgb * lightValue, 1.0);\n";
 meshFS += "}";
 
 var modelIdentityMat = mat4.create();
 mat4.identity(modelIdentityMat);
+
+var modelViewMat = mat4.create();
+var modelViewInvMat = mat3.create();
 
 var SourceModel = Object.create(Object, {
     lod: {
@@ -115,6 +142,18 @@ var SourceModel = Object.create(Object, {
         value: null
     },
     
+    numSkinRef: {
+        value: 0
+    },
+    
+    skinTable: {
+        value: null
+    },
+    
+    skin: {
+        value: 0
+    },
+    
     load: {
         value: function(gl, url, lod) {
             this._initializeShaders(gl);
@@ -133,7 +172,7 @@ var SourceModel = Object.create(Object, {
             mdlXhr.addEventListener("load", function() {
                 self._parseMdl(this.response);
                 
-                self._loadMaterials(gl, self.textures);
+                self.loadSkin(gl, 0);
                 
                 var vvdXhr = new XMLHttpRequest();
                 vvdXhr.open('GET', url + ".vvd", true);
@@ -160,23 +199,29 @@ var SourceModel = Object.create(Object, {
         }
     },
     
+    loadSkin: {
+        value: function(gl, skinId) {
+            this.skin = skinId;
+            
+            // Load Materials
+            var skinTableOffset = this.numSkinRef * skinId;
+            for(var i = 0; i < this.numSkinRef; ++i) {
+                var textureId = this.skinTable[skinTableOffset + i];
+                var texture = this.textures[textureId];
+                if(!texture.material) {
+                    var materialName = texture.textureName;
+                    texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/", this.textureDirs, materialName);
+                }
+            }
+        }
+    },
+    
     _initializeShaders: {
         value: function(gl) {
             this.shader = glUtil.createShaderProgram(gl, meshVS, meshFS,
                 ['position', 'texture', 'normal', 'tangent'],
-                ['viewMat', 'modelMat', 'projectionMat', 'diffuse']
+                ['modelViewMat', 'projectionMat', 'normalMat', 'diffuse', 'bump']
             );
-        }
-    },
-    
-    _loadMaterials: {
-        value: function(gl, textures) {
-            for(var textureId in textures) {
-                var texture = textures[textureId];
-                var materialName = texture.textureName;
-                
-                texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/", this.textureDirs, materialName);
-            }
         }
     },
     
@@ -188,16 +233,24 @@ var SourceModel = Object.create(Object, {
         value: function(buffer) {
             var header = StudioHdr_t.readStructs(buffer, 0, 1)[0];
             
+            // Texture names
             this.textures = MStudioTexture_t.readStructs(buffer, header.textureindex, header.numtextures, function(texture, offset) {
                 texture.readTextureName(buffer, offset);
             });
             
+            // Texture directories
             var textureDirs = this.textureDirs = [];
             MStudioTextureDir_t.readStructs(buffer, header.cdtextureindex, header.numcdtextures, function(textureDir, offset) {
                 textureDir.readTextureDir(buffer, 0);
                 textureDirs.push(textureDir.textureDir);
             });
             
+            // Skin Table
+            var skinTableSize = header.numskinref * header.numskinfamilies;
+            this.numSkinRef = header.numskinref;
+            this.skinTable = Struct.readUint16Array(buffer, header.skinindex, skinTableSize);
+            
+            // Mesh definitions
             this.mdlBodyParts = MStudioBodyParts_t.readStructs(buffer, header.bodypartindex, header.numbodyparts, function(bodyPart, offset) {
                 bodyPart.models = MStudioModel_t.readStructs(buffer, bodyPart.modelindex + offset, bodyPart.nummodels, function(model, offset) {
                     model.meshes = MStudioMesh_t.readStructs(buffer, model.meshindex + offset, model.nummeshes, function(mesh, offset) {
@@ -206,6 +259,7 @@ var SourceModel = Object.create(Object, {
                 });
             });
             
+            // Calculate mesh offsets
             this._setRootLOD(header, this.mdlBodyParts, this.lod);
         }
     },
@@ -268,7 +322,7 @@ var SourceModel = Object.create(Object, {
             var vertexView = new Uint8Array(buffer, vertexOffset);
             var tangentView = new Uint8Array(buffer, tangentOffset);
             
-            // This is a byte array because the GPU doesn't care about type and it allows us to sidestype byte-alignment issues
+            // This is a byte array because the GPU doesn't care about type and it allows us to sidestep byte-alignment issues
             var vertexArray = new Uint8Array(this.vertCount * 64);
             var vertexArrayOffset = 0;
             
@@ -334,49 +388,8 @@ var SourceModel = Object.create(Object, {
                     });
                 });
             });
-            
-            //this._calculateVertexOffsets(this.bodyParts, this.lod);
         }
     },
-    
-    /*_calculateVertexOffsets: {
-        value: function(bodyParts, targetLod) {
-            var vertexoffset = 0;
-        
-            for(var bodyPartId = 0; bodyPartId < bodyParts.length; ++bodyPartId) {
-                var bodyPart = bodyParts[bodyPartId];
-                
-                for(var modelId = 0; modelId < bodyPart.models.length; ++modelId) {
-                    var model = bodyPart.models[modelId];
-                    var totalModelVertices = 0;  
-                    
-                    for(var lodId = 0; lodId < model.lods.length; ++lodId) {
-                        if(lodId != targetLod) { continue; }
-                        var lod = model.lods[lodId];
-                                   
-                        for(var meshId = 0; meshId < lod.meshes.length; ++meshId) {
-                            var mesh = lod.meshes[meshId];
-                            var totalMeshVertices = 0;  
-                            
-                            for(var stripGroupId in mesh.stripGroups) {
-                                var stripGroup = mesh.stripGroups[stripGroupId];
-                                
-                                totalMeshVertices += stripGroup.numVerts;
-                            }
-
-                            mesh.numvertices = totalMeshVertices;
-                            mesh.vertexoffset = totalModelVertices;
-                            totalModelVertices += mesh.numvertices;
-                        }
-                    }
-                    
-                    model.numvertices = totalModelVertices;
-                    model.vertexoffset = vertexoffset;
-                    vertexoffset += totalModelVertices;
-                }
-            }
-        }
-    },*/
     
     _buildIndices: {
         value: function() {
@@ -479,8 +492,12 @@ var SourceModel = Object.create(Object, {
             gl.useProgram(shader);
             
             gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
-            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
-            gl.uniformMatrix4fv(shader.uniform.modelMat, false, modelMat || modelIdentityMat);
+            
+            mat4.multiply(viewMat, modelMat || modelIdentityMat, modelViewMat);
+            gl.uniformMatrix4fv(shader.uniform.modelViewMat, false, modelViewMat);
+            
+            mat4.toInverseMat3(modelViewMat, modelViewInvMat);
+            gl.uniformMatrix3fv(shader.uniform.normalMat, false, modelViewInvMat);
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
@@ -492,36 +509,39 @@ var SourceModel = Object.create(Object, {
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
 
-            // Draw the mesh
+            // Setup the vertex layout
             gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, VERTEX_STRIDE, 16);
             gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, true, VERTEX_STRIDE, 28);
             gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, VERTEX_STRIDE, 40);
             gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, VERTEX_STRIDE, 48);
             
-            //gl.drawArrays(gl.POINTS, 0, this.vertCount);
-            
-            gl.activeTexture(gl.TEXTURE0);
             gl.uniform1i(shader.uniform.diffuse, 0);
+            gl.uniform1i(shader.uniform.bump, 1);
             
+            // Draw the mesh
             var self = this;
             var lastTexture = null;
+            var lastBump = null;
             this._iterateStripGroups(function(stripGroup, mesh, model, bodyPart) {
-                var material = self.textures[mesh.material].material;
+                var materialId = mesh.material + (self.numSkinRef * self.skin);
+                var material = self.textures[self.skinTable[materialId]].material;
                 
-                var texture = material.texture;
-                
+                var texture = material ? material.texture : null;
                 if(!texture) { texture = glUtil.defaultTexture; }
                 
-                if(texture != lastTexture) {
-                    gl.bindTexture(gl.TEXTURE_2D, texture);
-                }
+                var bump = material ? material.bump : null;
+                if(!bump) { bump = glUtil.defaultBumpTexture; }
+                
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                
+                gl.activeTexture(gl.TEXTURE1);
+                gl.bindTexture(gl.TEXTURE_2D, bump);
                 
                 for(var stripId in stripGroup.strips) {
                     var strip = stripGroup.strips[stripId];
                     gl.drawElements(gl.TRIANGLES, strip.numIndices, gl.UNSIGNED_SHORT, (stripGroup.indexOffset + strip.indexOffset) * 2);
                 }
-                
-                //return false;
             }, this.lod);
         }
     }
