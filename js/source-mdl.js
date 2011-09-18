@@ -39,7 +39,7 @@ meshVS += "attribute vec4 tangent;\n";
 
 meshVS += "uniform mat4 viewMat;\n";
 meshVS += "uniform mat4 modelMat;\n";
-meshVS += "uniform mat3 normalMat;\n";
+//meshVS += "uniform mat3 normalMat;\n";
 meshVS += "uniform mat4 projectionMat;\n";
 
 meshVS += "uniform vec3 lightPos;\n";
@@ -50,6 +50,9 @@ meshVS += "varying vec3 tangentEyeDir;\n";
 
 meshVS += "void main(void) {\n";
 meshVS += " mat4 modelViewMat = viewMat * modelMat;\n";
+// Um... yeah. Wow. Do I really want to do this?
+// A "manual" rotation matrix transpose to get the normal matrix
+meshVS += " mat3 normalMat = mat3(modelViewMat[0][0], modelViewMat[1][0], modelViewMat[2][0], modelViewMat[0][1], modelViewMat[1][1], modelViewMat[2][1], modelViewMat[0][2], modelViewMat[1][2], modelViewMat[2][2]);\n";
 meshVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
 meshVS += " gl_Position = projectionMat * vPosition;\n";
 
@@ -506,6 +509,63 @@ var SourceModel = Object.create(Object, {
     },
     
     /*
+     * Generate a simplified model for use by static props in the maps
+     */
+    getBspModel: {
+        value: function() {
+            var bspModel = {
+                meshes: [],
+                vertexArray: this.vertArray,
+                indexArray: this.indexArray
+            };
+            
+            for(var bodyPartId in this.bodyParts) {
+                var bodyPart = this.bodyParts[bodyPartId];
+                var mdlBodyPart = this.mdlBodyParts[bodyPartId];
+                
+                for(var modelId in bodyPart.models) {
+                    var model = bodyPart.models[modelId];
+                    var mdlModel = mdlBodyPart.models[modelId];
+                    
+                    var lod = model.lods[this.lod]; // Only hit the LOD that we care about;
+                    
+                    // TODO Wishlist: Different body parts MAY use the same material. Can we merge them here?
+                    for(var meshId in lod.meshes) {
+                        var mesh = lod.meshes[meshId];
+                        var mdlMesh = mdlModel.meshes[meshId];
+                        
+                        var materialId = mdlMesh.material + (this.numSkinRef * this.skin);
+                        var material = this.textures[this.skinTable[materialId]].material;
+                        
+                        var bspMesh = {
+                            material: material,
+                            triPatches: []
+                        };
+                        
+                        // TODO Wishlist: Can we do a pre-pass on these and sort the indicies so that a full material can always be drawn with a single call?
+                        for(var stripGroupId in mesh.stripGroups) {
+                            var stripGroup = mesh.stripGroups[stripGroupId];
+                            
+                            for(var stripId in stripGroup.strips) {
+                                var strip = stripGroup.strips[stripId];
+
+                                bspMesh.triPatches.push({
+                                    indexOffset: (stripGroup.indexOffset + strip.indexOffset) * 2, // Bytes!
+                                    numIndices: strip.numIndices
+                                });
+                            }
+                        }
+                        
+                        bspModel.meshes.push(bspMesh);
+                    }
+                }
+            }
+            
+            return bspModel;
+        }
+    },
+    
+    /*
      * Rendering
      */
     
@@ -534,9 +594,9 @@ var SourceModel = Object.create(Object, {
             gl.uniformMatrix4fv(shader.uniform.modelMat, false, modelMat || modelIdentityMat);
             
             // It's too bad we can't do this in the shader
-            mat4.multiply(viewMat, modelMat || modelIdentityMat, modelViewMat);
+            /*mat4.multiply(viewMat, modelMat || modelIdentityMat, modelViewMat);
             mat4.toInverseMat3(modelViewMat, modelViewInvMat);
-            gl.uniformMatrix3fv(shader.uniform.normalMat, false, modelViewInvMat);
+            gl.uniformMatrix3fv(shader.uniform.normalMat, false, modelViewInvMat);*/
 
             // Bind the appropriate buffers
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);

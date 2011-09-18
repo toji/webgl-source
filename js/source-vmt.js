@@ -88,10 +88,34 @@ var SourceMaterial = Object.create(Object, {
         value: false
     },
     
+    addative: {
+        value: false
+    },
+    
+    nocull: {
+        value: false
+    },
+    
     load: {
         value: function(gl, rootUrl, buffer) {
             var material = this._parseVmt(buffer);
             this._compileMaterial(gl, rootUrl, material);
+        }
+    },
+    
+    setState: {
+        value: function(gl) {
+            if(this.addative) {
+                gl.blendFunc(gl.ONE, gl.ONE);
+            } else {
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            }
+            
+            if(this.nocull) {
+                gl.disable(gl.CULL_FACE);
+            } else {
+                gl.enable(gl.CULL_FACE);
+            }
         }
     },
     
@@ -131,6 +155,16 @@ var SourceMaterial = Object.create(Object, {
                     case "$translucent": {
                         var trans = tokens.next();
                         this.translucent = trans == "1";
+                    } break;
+                    
+                    case "$additive": {
+                        var addative = tokens.next();
+                        this.translucent = true;
+                        this.addative = addative == "1";
+                    } break;
+                    
+                    case "$nocull": {
+                        this.nocull = true;
                     } break;
                 }
             }
@@ -213,6 +247,8 @@ var SourceMaterialManager = Object.create(Object, {
             var self = this;
             
             this.materialCount++;
+            
+            url = url.replace(".vmt", ""); // Strip off .vmt extension if it was provided
             
             if(!searchDirs) {
                 searchDirs = [""];

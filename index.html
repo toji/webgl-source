@@ -54,7 +54,7 @@
             function initMesh(gl) {
                 //model = Object.create(SourceModel).load(gl, 'root/tf/models/heavy');
                 map = Object.create(SourceBsp).load(gl, 'root/tf/maps/ctf_2fort', function(map) {
-                    setCameraSpawn(map.entities.info_player_start[0]);
+                    setCameraSpawn(map.entities.info_player_start[1]);
                 });
                 //map = Object.create(SourceBsp).load(gl, 'root/tf/maps/cp_badlands');
             }
@@ -161,7 +161,11 @@
             }
             
             canvas {
-                margin-top: 20px;
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                
+                //margin-top: 20px;
             }
         </style>
     </head>

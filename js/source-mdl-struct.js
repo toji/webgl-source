@@ -79,14 +79,14 @@ var MStudioMesh_t = Struct.create(
 );
 
 var MStudioModel_t = Struct.create(
-	Struct.string("name", 64),
-	Struct.int32("type"),
-	Struct.float32("boundingradius"), 
-	Struct.int32("nummeshes"), Struct.int32("meshindex"),
-	Struct.int32("numvertices"), Struct.int32("vertexindex"), Struct.int32("tangentsindex"),
-	Struct.int32("numattachments"), Struct.int32("attachmentindex"),
-	Struct.int32("numeyeballs"), Struct.int32("eyeballindex"),
-	Struct.skip(40)
+    Struct.string("name", 64),
+    Struct.int32("type"),
+    Struct.float32("boundingradius"), 
+    Struct.int32("nummeshes"), Struct.int32("meshindex"),
+    Struct.int32("numvertices"), Struct.int32("vertexindex"), Struct.int32("tangentsindex"),
+    Struct.int32("numattachments"), Struct.int32("attachmentindex"),
+    Struct.int32("numeyeballs"), Struct.int32("eyeballindex"),
+    Struct.skip(40)
 );
 
 var MStudioBodyParts_t = Struct.create(
