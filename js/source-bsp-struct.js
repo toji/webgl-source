@@ -325,7 +325,21 @@ var StaticPropDictLumpHeader_t = Struct.create(
 );
 
 var StaticPropDictLump_t = Struct.create(
-    Struct.string("m_Name", STATIC_PROP_NAME_LENGTH)
+    Struct.string("m_Name", STATIC_PROP_NAME_LENGTH),
+    {
+        props: {
+            value: null
+        },
+        
+        addProp: {
+            value: function(prop) {
+                if(!this.props) {
+                    this.props = [];
+                }
+                this.props.push(prop);
+            }
+        }
+    }
 );
 
 var StaticPropLeafLumpHeader_t = Struct.create(

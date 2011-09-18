@@ -30,9 +30,6 @@
 // TODO: Ugh, this is messy. Do it differentely soon, please!
 var nextStructId = 0;
 
-/**
-* 
-*/
 var Struct = Object.create(Object, {
     /**
     * Defines a single byte integer value (byte/char). 
@@ -259,7 +256,17 @@ var Struct = Object.create(Object, {
             return struct;
         }
     },
-     
+    
+    //
+    // Utility functions to read simple arrays of data from a buffer
+    //
+    
+    /**
+    * Read an ASCII string from an ArrayBuffer
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param length Optional, number of characters to read. If not given will read until a NULL char is reached
+    */ 
     readString: {
         value: function(buffer, offset, length) {
             var str = "", charBuffer;
@@ -276,7 +283,6 @@ var Struct = Object.create(Object, {
                     str += String.fromCharCode(char);
                 }
             } else {
-                // If no length is specified, read till we hit a NULL char
                 charBuffer = new Uint8Array(buffer, offset);
                 
                 var i = 0;
@@ -290,7 +296,14 @@ var Struct = Object.create(Object, {
         }
     },
     
-    // I wonder if there's a more efficent way to do this that doesn't run afoul the offset restrictions of TypedArrays
+    // I wonder if there's a more efficent way to do these that doesn't run afoul the offset restrictions of TypedArrays
+    
+    /**
+    * Read an array of 8 bit integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readInt8Array: {
         value: function(buffer, offset, elements) {
             var array = new Int8Array(elements);
@@ -302,6 +315,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 8 bit unsigned integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readUint8Array: {
         value: function(buffer, offset, elements) {
             var array = new Uint8Array(elements);
@@ -313,6 +332,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 16 bit integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readInt16Array: {
         value: function(buffer, offset, elements) {
             var array = new Int16Array(elements);
@@ -324,6 +349,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 16 bit unsigned integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readUint16Array: {
         value: function(buffer, offset, elements) {
             var array = new Uint16Array(elements);
@@ -335,6 +366,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 32 bit integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readInt32Array: {
         value: function(buffer, offset, elements) {
             var array = new Int32Array(elements);
@@ -346,6 +383,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 32 bit unsigned integers
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of integers to read
+    */
     readUint32Array: {
         value: function(buffer, offset, elements) {
             var array = new Uint32Array(elements);
@@ -357,6 +400,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 32 bit floats
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of floats to read
+    */
     readFloat32Array: {
         value: function(buffer, offset, elements) {
             var array = new Float32Array(elements);
@@ -368,6 +417,12 @@ var Struct = Object.create(Object, {
         }
     },
     
+    /**
+    * Read an array of 64 bit floats
+    * @param buffer Buffer to read from
+    * @param offset Offset in bytes to start reading at
+    * @param elements Number of floats to read
+    */
     readFloat64Array: {
         value: function(buffer, offset, elements) {
             var array = new Float64Array(elements);

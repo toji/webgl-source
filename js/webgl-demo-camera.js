@@ -213,7 +213,7 @@ var FlyingDemoCamera = Object.create(Object, {
                 mat4.rotateX(mv, this.angles[0]-Math.PI/2.0);
                 mat4.rotateZ(mv, this.angles[1]);
                 mat4.rotateY(mv, this.angles[2]);
-                mat4.translate(mv, [-this.position[0], -this.position[1], - this.position[2]]);
+                mat4.translate(mv, [-this.position[0], -this.position[1], -this.position[2]]);
                 this._dirty = false;
             }
             

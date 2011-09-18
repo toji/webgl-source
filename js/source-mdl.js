@@ -37,16 +37,19 @@ meshVS += "attribute vec2 texture;\n";
 meshVS += "attribute vec3 normal;\n";
 meshVS += "attribute vec4 tangent;\n";
 
-meshVS += "uniform mat4 modelViewMat;\n";
+meshVS += "uniform mat4 viewMat;\n";
+meshVS += "uniform mat4 modelMat;\n";
 meshVS += "uniform mat3 normalMat;\n";
 meshVS += "uniform mat4 projectionMat;\n";
+
+meshVS += "uniform vec3 lightPos;\n";
 
 meshVS += "varying vec2 vTexCoord;\n";
 meshVS += "varying vec3 tangentLightDir;\n";
 meshVS += "varying vec3 tangentEyeDir;\n";
 
 meshVS += "void main(void) {\n";
-meshVS += " vec3 lightPos = (modelViewMat * vec4(100.0, 100.0, 100.0, 1.0)).xyz;\n";
+meshVS += " mat4 modelViewMat = viewMat * modelMat;\n";
 meshVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
 meshVS += " gl_Position = projectionMat * vPosition;\n";
 
@@ -56,7 +59,8 @@ meshVS += " vec3 n = normalize(normal * normalMat);\n";
 meshVS += " vec3 t = normalize(tangent.xyz * normalMat);\n";
 meshVS += " vec3 b = cross (n, t) * tangent.w;\n";
 
-meshVS += " vec3 lightDir = lightPos - vPosition.xyz;\n";
+meshVS += " vec3 vlightPos = (viewMat * vec4(lightPos, 1.0)).xyz;\n";
+meshVS += " vec3 lightDir = vlightPos - vPosition.xyz;\n";
 meshVS += " tangentLightDir.x = dot(lightDir, t);\n";
 meshVS += " tangentLightDir.y = dot(lightDir, b);\n";
 meshVS += " tangentLightDir.z = dot(lightDir, n);\n";
@@ -92,8 +96,10 @@ meshFS += " float specularFactor = pow(clamp(dot(reflectDir, eyeDir), 0.0, 1.0),
 
 meshFS += " float lightFactor = max(dot(lightDir, normal), 0.0);\n";
 meshFS += " vec3 lightValue = ambientLight + (lightColor * lightFactor) + (specularColor * specularFactor);\n";
-meshFS += " gl_FragColor = vec4(diffuseColor.rgb * lightValue, 1.0);\n";
+meshFS += " gl_FragColor = vec4(diffuseColor.rgb * lightValue, diffuseColor.a);\n";
 meshFS += "}";
+
+var sourceMdlShader = null;
 
 var modelIdentityMat = mat4.create();
 mat4.identity(modelIdentityMat);
@@ -114,6 +120,10 @@ var SourceModel = Object.create(Object, {
         value: null
     },
     
+    indexArray: {
+        value: null
+    },
+    
     indexBuffer: {
         value: null
     },
@@ -123,10 +133,6 @@ var SourceModel = Object.create(Object, {
     },
     
     mdlBodyParts: {
-        value: null
-    },
-    
-    shader: {
         value: null
     },
     
@@ -154,12 +160,16 @@ var SourceModel = Object.create(Object, {
         value: 0
     },
     
+    /**
+     * Load the .mdl and other associated files.
+     * @param gl WebGL context used to initialize the data. If not provided, the model will parse all relevent data but will not upload to the GPU
+     * @param url Location to load the model from. Do not pass an extension. Will load url.mdl, url.vvd, and url.vtx
+     * @param callback Function to call when load is complete
+     **/
     load: {
-        value: function(gl, url, lod) {
-            this._initializeShaders(gl);
-            
-            if(typeof(lod) != "undefined") {
-                this.lod = lod;
+        value: function(gl, url, callback) {
+            if(gl) {
+                this.initializeShaders(gl);
             }
             
             url = url.replace(".mdl", ""); // Strip off .mdl extension if it was provided
@@ -172,7 +182,9 @@ var SourceModel = Object.create(Object, {
             mdlXhr.addEventListener("load", function() {
                 self._parseMdl(this.response);
                 
-                self.loadSkin(gl, 0);
+                if(gl) {
+                    self.loadSkin(gl, 0);
+                }
                 
                 var vvdXhr = new XMLHttpRequest();
                 vvdXhr.open('GET', url + ".vvd", true);
@@ -185,7 +197,12 @@ var SourceModel = Object.create(Object, {
                     vtxXhr.responseType = "arraybuffer";
                     vtxXhr.addEventListener("load", function() {
                         self._parseVtx(this.response, self.lod);
-                        self._initializeBuffers(gl);
+                        
+                        if(gl) {
+                            self._initializeBuffers(gl);
+                        }
+                        
+                        if(callback) { callback(self); }
                     });
                     vtxXhr.send(null);
                 
@@ -209,19 +226,29 @@ var SourceModel = Object.create(Object, {
                 var textureId = this.skinTable[skinTableOffset + i];
                 var texture = this.textures[textureId];
                 if(!texture.material) {
-                    var materialName = texture.textureName;
-                    texture.material = Object.create(SourceMaterial).load(gl, "root/tf/materials/", this.textureDirs, materialName);
+                    this._loadMaterial(gl, texture);
                 }
             }
         }
     },
     
-    _initializeShaders: {
+    _loadMaterial: {
+        value: function(gl, texture) {
+            var materialName = texture.textureName;
+            materialManager.loadMaterial(gl, "root/tf/materials/", this.textureDirs, materialName, function(material) {
+                texture.material = material;
+            });
+        }
+    },
+    
+    initializeShaders: {
         value: function(gl) {
-            this.shader = glUtil.createShaderProgram(gl, meshVS, meshFS,
-                ['position', 'texture', 'normal', 'tangent'],
-                ['modelViewMat', 'projectionMat', 'normalMat', 'diffuse', 'bump']
-            );
+            if(!sourceMdlShader) {
+                sourceMdlShader = glUtil.createShaderProgram(gl, meshVS, meshFS,
+                    ['position', 'texture', 'normal', 'tangent'],
+                    ['modelMat', 'viewMat', 'projectionMat', 'normalMat', 'diffuse', 'bump', 'lightPos']
+                );
+            }
         }
     },
     
@@ -374,7 +401,6 @@ var SourceModel = Object.create(Object, {
             var header = VtxHeader_t.readStructs(buffer, 0, 1)[0];
             
             // Nested struct parsing loop of DOOM!
-            
             this.bodyParts = BodyPartHeader_t.readStructs(buffer, header.bodyPartOffset, header.numBodyParts, function(bodyPart, offset) {
                 bodyPart.models = ModelHeader_t.readStructs(buffer, offset + bodyPart.modelOffset, bodyPart.numModels, function(model, offset) {
                     model.lods = ModelLODHeader_t.readStructs(buffer, offset + model.lodOffset, model.numLODs, function(lod, offset) {
@@ -388,6 +414,8 @@ var SourceModel = Object.create(Object, {
                     });
                 });
             });
+            
+            this.indexArray = this._buildIndices();
         }
     },
     
@@ -417,15 +445,13 @@ var SourceModel = Object.create(Object, {
     
     _initializeBuffers: {
         value: function(gl) {
-            var indexArray = this._buildIndices();
-            
             this.vertBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, this.vertArray, gl.STATIC_DRAW);
             
             this.indexBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indexArray, gl.STATIC_DRAW);
         }
     },
     
@@ -484,27 +510,34 @@ var SourceModel = Object.create(Object, {
      */
     
     draw: {
-        value: function(gl, viewMat, projectionMat, modelMat) {
-            var shader = this.shader;
+        value: function(gl, viewMat, projectionMat, modelMat, shader) {
+            if(!this.vertBuffer) { return; }
             
-            if(!shader || !this.vertBuffer) { return; }
+            if(!shader) {
+                if(!sourceMdlShader) { return; }
+                shader = sourceMdlShader;
+                
+                gl.useProgram(shader);
+
+                gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
+                
+                // Enable vertex arrays
+                gl.enableVertexAttribArray(shader.attribute.position);
+                gl.enableVertexAttribArray(shader.attribute.texture);
+                gl.enableVertexAttribArray(shader.attribute.normal);
+                gl.enableVertexAttribArray(shader.attribute.tangent);
+                
+                gl.uniform3f(shader.uniform.lightPos, 100, 100, 100);
+                gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            };
             
-            gl.useProgram(shader);
+            gl.uniformMatrix4fv(shader.uniform.modelMat, false, modelMat || modelIdentityMat);
             
-            gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
-            
+            // It's too bad we can't do this in the shader
             mat4.multiply(viewMat, modelMat || modelIdentityMat, modelViewMat);
-            gl.uniformMatrix4fv(shader.uniform.modelViewMat, false, modelViewMat);
-            
             mat4.toInverseMat3(modelViewMat, modelViewInvMat);
             gl.uniformMatrix3fv(shader.uniform.normalMat, false, modelViewInvMat);
 
-            // Enable vertex arrays
-            gl.enableVertexAttribArray(shader.attribute.position);
-            gl.enableVertexAttribArray(shader.attribute.texture);
-            gl.enableVertexAttribArray(shader.attribute.normal);
-            gl.enableVertexAttribArray(shader.attribute.tangent);
-            
             // Bind the appropriate buffers
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
@@ -544,5 +577,5 @@ var SourceModel = Object.create(Object, {
                 }
             }, this.lod);
         }
-    }
+    },
 });

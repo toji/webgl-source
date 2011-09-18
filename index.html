@@ -38,7 +38,6 @@
                 gl.enable(gl.CULL_FACE);
                 gl.cullFace(gl.FRONT);
                 
-                gl.enable(gl.BLEND);
                 gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
                 
                 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -106,8 +105,8 @@
                 var canvas = document.getElementById('viewport');
                 
                 // Fit the canvas to the document
-                canvas.width = 854; //document.width;
-                canvas.height = 480; //document.height;
+                canvas.width = document.width; //854; 
+                canvas.height = document.height; //480;
                 
                 // Get the GL Context
                 var gl = glUtil.getContext(canvas);

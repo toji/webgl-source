@@ -121,6 +121,15 @@ var glUtil = Object.create(Object, {
     
     loadTexture: {
         value: function(gl, src, callback) {
+            if(!this.textures) { this.textures = {}; }
+            
+            // Check to see if that URL has already been loaded
+            var texture = this.textures[src];
+            if(texture) { 
+                if(callback) { callback(texture); }
+                return texture;
+            }
+            
             var texture = gl.createTexture();
             var image = new Image();
             image.addEventListener("load", function() {
@@ -133,6 +142,8 @@ var glUtil = Object.create(Object, {
                 if(callback) { callback(texture); }
             });
             image.src = src;
+            
+            this.textures[src] = texture;
             return texture;
         }
     },

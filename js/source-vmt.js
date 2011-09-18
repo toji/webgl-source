@@ -80,37 +80,18 @@ var SourceMaterial = Object.create(Object, {
         value: null
     },
     
+    bump: {
+        value: null
+    },
+    
+    translucent: {
+        value: false
+    },
+    
     load: {
-        value: function(gl, rootUrl, searchDirs, url) {
-            var self = this;
-            
-            if(!url) {
-                url = searchDirs;
-                searchDirs = [""];
-            }
-            
-            function tryDir(searchDirId) {
-                if(searchDirId >= searchDirs.length) { return; }
-                
-                var searchDir = searchDirs[searchDirId];
-                var vmtXhr = new XMLHttpRequest();
-                vmtXhr.open('GET', rootUrl + searchDir + url + ".vmt", true);
-                vmtXhr.addEventListener("load", function() {
-                    if (vmtXhr.status == 200) {  
-                        var material = self._parseVmt(this.responseText);
-                        self._compileMaterial(gl, rootUrl, material);
-                    } else {
-                        tryDir(searchDirId+1);
-                    }
-                });
-                vmtXhr.addEventListener("error", function() {
-                    tryDir(searchDirId++);
-                });
-                vmtXhr.send(null);
-            }
-            tryDir(0);
-            
-            return this;
+        value: function(gl, rootUrl, buffer) {
+            var material = this._parseVmt(buffer);
+            this._compileMaterial(gl, rootUrl, material);
         }
     },
     
@@ -144,6 +125,12 @@ var SourceMaterial = Object.create(Object, {
                     
                     case "$bumpmap": {
                         material.bumpmap = tokens.next();
+                    } break;
+                    
+                    case "$alphatest":
+                    case "$translucent": {
+                        var trans = tokens.next();
+                        this.translucent = trans == "1";
                     } break;
                 }
             }
@@ -191,3 +178,100 @@ var SourceMaterial = Object.create(Object, {
     }
 });
 
+//
+// Material management
+//
+
+var SourceMaterialManager = Object.create(Object, {
+    materials: {
+        value: null
+    },
+    
+    materialCount: {
+        value: 0
+    },
+    
+    materialsComplete: {
+        value: 0
+    },
+    
+    onMaterialsCompleted: {
+        value: null
+    },
+    
+    init: {
+        value: function() {
+            this.materials = {};
+            this.textures = {};
+            
+            return this;
+        }
+    },
+    
+    loadMaterial: {
+        value: function(gl, rootUrl, searchDirs, url, callback) {
+            var self = this;
+            
+            this.materialCount++;
+            
+            if(!searchDirs) {
+                searchDirs = [""];
+            }
+            
+            var material;
+            function tryDir(searchDirId) {
+                if(searchDirId >= searchDirs.length) {
+                    if(callback) { callback(null); } // Not found
+                    self._materialCompleted();
+                    return; 
+                }
+                
+                var searchDir = searchDirs[searchDirId];
+                
+                var path = rootUrl + searchDir + url + ".vmt";
+                
+                material = self.materials[path];
+                if(material) { 
+                    if(callback) { callback(material); }
+                    self._materialCompleted();
+                    return;
+                }
+                
+                var vmtXhr = new XMLHttpRequest();
+                vmtXhr.open('GET', rootUrl + searchDir + url + ".vmt", true);
+                vmtXhr.addEventListener("load", function() {
+                    if (vmtXhr.status == 200) {
+                        material = Object.create(SourceMaterial);  
+                        material.load(gl, rootUrl, this.responseText);
+                        if(callback) { callback(material); }
+                        self._materialCompleted();
+                    } else {
+                        tryDir(searchDirId+1);
+                    }
+                });
+                vmtXhr.addEventListener("error", function() {
+                    tryDir(searchDirId++);
+                });
+                vmtXhr.send(null);
+            }
+            tryDir(0);
+        }
+    },
+    
+    _materialCompleted: {
+        value: function() {
+            this.materialsComplete++;
+            if(this.materialsComplete == this.materialCount) {
+                if(this.onMaterialsCompleted) { this.onMaterialsCompleted(); }
+            }
+        }
+    },
+    
+    areMaterialsComplete: {
+        get: function() {
+            return this.materialsComplete == this.materialCount;
+        }
+    },
+});
+
+var materialManager = Object.create(SourceMaterialManager).init();
