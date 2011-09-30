@@ -97,9 +97,9 @@ var SourceMaterial = Object.create(Object, {
     },
     
     load: {
-        value: function(gl, rootUrl, buffer) {
+        value: function(gl, rootUrl, buffer, raw) {
             var material = this._parseVmt(buffer);
-            this._compileMaterial(gl, rootUrl, material);
+            this._compileMaterial(gl, rootUrl, material, raw);
         }
     },
     
@@ -192,24 +192,54 @@ var SourceMaterial = Object.create(Object, {
     },
     
     _compileMaterial: {
-        value: function(gl, rootUrl, material) {
+        value: function(gl, rootUrl, material, raw) {
             var self = this;
             
             if(material == null) { return; }
             
             if(material.basetexture) {
-                glUtil.loadTexture(gl, rootUrl + "/" + material.basetexture + ".png", function(texture) {
-                    self.texture = texture;
-                });
+                if(raw) {
+                    var image = new Image();
+                    image.addEventListener("load", function() {
+                        self.texture = image;
+                        if(self._onTextureLoaded) { self._onTextureLoaded(image); }
+                    }, false);
+                    image.src = rootUrl + "/" + material.basetexture + ".png";
+                } else {
+                    glUtil.loadTexture(gl, rootUrl + "/" + material.basetexture + ".png", function(texture) {
+                        self.texture = texture;
+                        if(self._onTextureLoaded) { self._onTextureLoaded(texture); }
+                    });
+                }
             }
             
             if(material.bumpmap) {
-                glUtil.loadTexture(gl, rootUrl + "/" + material.bumpmap + ".png", function(texture) {
-                    self.bump = texture;
-                });
+                if(raw) {
+                    var image = new Image();
+                    image.addEventListener("load", function() {
+                        self.texture = image;
+                    }, false);
+                    image.src = rootUrl + "/" + material.bumpmap + ".png";
+                } else {
+                    glUtil.loadTexture(gl, rootUrl + "/" + material.bumpmap + ".png", function(texture) {
+                        self.bump = texture;
+                    });
+                }
             }
         }
-    }
+    },
+    
+    _onTextureLoaded: {
+        value: null
+    },
+    
+    onTextureLoaded: {
+        get: function() { return this._onTextureLoaded; },
+        set: function(value) { 
+            if(this.texture && value) { value(this.texture); }
+            this._onTextureLoaded = value;
+        }
+    },
 });
 
 //
@@ -243,7 +273,7 @@ var SourceMaterialManager = Object.create(Object, {
     },
     
     loadMaterial: {
-        value: function(gl, rootUrl, searchDirs, url, callback) {
+        value: function(gl, rootUrl, searchDirs, url, callback, raw) {
             var self = this;
             
             this.materialCount++;
@@ -278,7 +308,7 @@ var SourceMaterialManager = Object.create(Object, {
                 vmtXhr.addEventListener("load", function() {
                     if (vmtXhr.status == 200) {
                         material = Object.create(SourceMaterial);  
-                        material.load(gl, rootUrl, this.responseText);
+                        material.load(gl, rootUrl, this.responseText, raw);
                         if(callback) { callback(material); }
                         self._materialCompleted();
                     } else {

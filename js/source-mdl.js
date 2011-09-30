@@ -63,7 +63,7 @@ meshVS += " vec3 t = normalize(tangent.xyz * normalMat);\n";
 meshVS += " vec3 b = cross (n, t) * tangent.w;\n";
 
 meshVS += " vec3 vlightPos = (viewMat * vec4(lightPos, 1.0)).xyz;\n";
-meshVS += " vec3 lightDir = vlightPos - vPosition.xyz;\n";
+meshVS += " vec3 lightDir = normalize(vlightPos - vPosition.xyz);\n";
 meshVS += " tangentLightDir.x = dot(lightDir, t);\n";
 meshVS += " tangentLightDir.y = dot(lightDir, b);\n";
 meshVS += " tangentLightDir.z = dot(lightDir, n);\n";
@@ -89,13 +89,15 @@ meshFS += " vec3 specularColor = vec3(1.0, 1.0, 1.0);\n";
 meshFS += " float shininess = 8.0;\n";
 meshFS += " vec3 ambientLight = vec3(0.15, 0.15, 0.15);\n"; 
 
-meshFS += " vec3 lightDir = normalize(tangentLightDir);\n"
-meshFS += " vec3 normal = normalize(2.0 * (texture2D(bump, vTexCoord.st).rgb - 0.5));\n"
+meshFS += " vec3 lightDir = normalize(tangentLightDir);\n";
+meshFS += " vec4 bumpColor = texture2D(bump, vTexCoord.st);\n";
+meshFS += " vec3 normal = normalize(2.0 * (bumpColor.rgb - 0.5));\n";
 meshFS += " vec4 diffuseColor = texture2D(diffuse, vTexCoord.st);\n";
 
-meshFS += " vec3 eyeDir = normalize(tangentEyeDir);\n"
-meshFS += " vec3 reflectDir = reflect(-lightDir, normal);\n"
-meshFS += " float specularFactor = pow(clamp(dot(reflectDir, eyeDir), 0.0, 1.0), shininess) * 1.0; // Specular Level\n"
+meshFS += " vec3 eyeDir = normalize(tangentEyeDir);\n";
+meshFS += " vec3 reflectDir = reflect(-lightDir, normal);\n";
+meshFS += " float specularLevel = 0.5;\n";
+meshFS += " float specularFactor = pow(clamp(dot(reflectDir, eyeDir), 0.0, 1.0), shininess) * specularLevel; // Specular Level\n";
 
 meshFS += " float lightFactor = max(dot(lightDir, normal), 0.0);\n";
 meshFS += " vec3 lightValue = ambientLight + (lightColor * lightFactor) + (specularColor * specularFactor);\n";

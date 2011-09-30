@@ -35,6 +35,7 @@ var MAX_INDEX = 65536;
 var MAXLIGHTMAPS = 4;
 var HEADER_LUMPS = 64;
 var STATIC_PROP_NAME_LENGTH = 128;
+var OVERLAY_BSP_FACE_COUNT = 64;
 
 var GAMELUMP_STATIC_PROPS = 1936749168; // 'sprp';
 
@@ -415,4 +416,21 @@ var dDispVert = Struct.create(
 
 var dDispTri = Struct.create(
     Struct.uint16("Tags")
+);
+
+var dCubemapSample_t = Struct.create(
+    Struct.array("origin", Struct.int32(), 3),
+    Struct.int32("size")
+);
+
+var doverlay_t = Struct.create(
+    Struct.int32("id"),
+    Struct.int16("texInfo"),
+    Struct.uint16("faceCountAndRenderOrder"),
+    Struct.array("Ofaces", Struct.int32(), OVERLAY_BSP_FACE_COUNT),
+    Struct.array("U", Struct.float32(), 2),
+    Struct.array("V", Struct.float32(), 2),
+    Struct.array("UVPoints", Vector, 4),
+    Struct.struct("Origin", Vector),
+    Struct.struct("BasisNormal", Vector)
 );

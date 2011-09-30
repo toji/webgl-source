@@ -31,6 +31,10 @@
 // Shaders
 //=============
 
+//
+// Basic lightmap shader
+//
+
 // Vertex Shader
 var mapVS = "attribute vec3 position;\n";
 mapVS += "attribute vec2 texture;\n";
@@ -59,170 +63,59 @@ mapFS += " vec4 light = texture2D(lightmap, lightCoord);\n";
 mapFS += " vec4 color = texture2D(diffuse, texCoord);\n";
 mapFS += " vec3 ambient = vec3(0.15, 0.15, 0.15);\n"; 
 mapFS += " gl_FragColor = vec4(color.rgb * (light.rgb + ambient), color.a);\n";
-//mapFS += " gl_FragColor = vec4(light.rgb, 1.0);\n";
-//mapFS += " gl_FragColor = color;\n";
 mapFS += "}";
 
+//
+// Shader for running an early Z pass over the scene
+//
+
+// Vertex Shader
+var depthPassVS = "attribute vec3 position;\n";
+depthPassVS += "uniform mat4 viewMat;\n";
+depthPassVS += "uniform mat4 modelMat;\n";
+depthPassVS += "uniform mat4 projectionMat;\n";
+depthPassVS += "void main(void) {\n";
+depthPassVS += " mat4 modelViewMat = viewMat * modelMat;\n";
+depthPassVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
+depthPassVS += " gl_Position = projectionMat * vPosition;\n";
+depthPassVS += "}";
+
+// Fragment Shader
+var depthPassFS = "void main(void) {\n";
+depthPassFS += " gl_FragColor = vec4(0,0,0,0);\n";
+depthPassFS += "}";
+
+//
+// Shader for the skybox
+//
+
+var skyVS = "attribute vec3 position;\n";
+skyVS += "uniform mat4 viewMat;\n";
+skyVS += "uniform mat4 projectionMat;\n";
+
+skyVS += "varying vec3 texCoord;\n";
+
+skyVS += "void main(void) {\n";
+skyVS += " mat4 skyMat = viewMat;\n";
+skyVS += " skyMat[3][0] = 0.0;\n";
+skyVS += " skyMat[3][1] = 0.0;\n";
+skyVS += " skyMat[3][2] = 0.0;\n";
+skyVS += " vec4 vPosition = skyMat * vec4(position, 1.0);\n";
+skyVS += " texCoord = position;\n";
+skyVS += " gl_Position = projectionMat * vPosition;\n";
+skyVS += "}";
+
+// Fragment Shader
+var skyFS = "uniform samplerCube diffuse;";
+skyFS += "varying vec3 texCoord;\n";
+skyFS += "void main(void) {\n";
+skyFS += " vec4 color = textureCube(diffuse, texCoord.xzy);\n";
+skyFS += " gl_FragColor = vec4(color);\n";
+skyFS += "}";
+
 var sourceBspShader = null;
-
-var SourceBspTree = Object.create(Object, {
-    planes: {
-        value: null
-    },
-    
-    models: {
-        value: null
-    },
-    
-    nodes: {
-        value: null
-    },
-    
-    leaves: {
-        value: null
-    },
-    
-    leafFaces: {
-        value: null
-    },
-    
-    clusterVis: {
-        value: null
-    },
-    
-    numClusters: {
-        value: 0
-    },
-
-    parse: {
-        value: function(buffer, header, planes) {
-            this.planes = this._parseLump(buffer, header.lumps[LUMP_PLANES], dplane_t);
-            this.models = this._parseLump(buffer, header.lumps[LUMP_MODELS], dmodel_t);
-            this.nodes = this._parseLump(buffer, header.lumps[LUMP_NODES], dnode_t);
-            this.leaves = this._parseLump(buffer, header.lumps[LUMP_LEAFS], dleaf_t);
-            
-            var leafFaceLump = header.lumps[LUMP_LEAFFACES];
-            this.leafFaces = new Uint16Array(buffer, leafFaceLump.fileofs, leafFaceLump.filelen/2); // Possible alignment issues here!
-            
-            this._parseVis(buffer, header.lumps[LUMP_VISIBILITY]);
-            
-            return this;
-        }
-    },
-    
-    _parseLump: {
-        value: function(buffer, lump, struct) {
-            return struct.readStructs(buffer, lump.fileofs, lump.filelen/struct.byteLength);
-        }
-    },
-    
-    getLeafId: {
-        value: function(pos) {
-            var model = this.models[0];
-            var index = model.headnode;
-            var node = null;
-            var plane = null;
-            var normal = vec3.create();
-            var dist = 0;
-            
-            // This should be a very fast trace down to the leaf that the given position is located in.
-            while (index >= 0) {
-                node = this.nodes[index];
-                plane = this.planes[node.planenum];
-                normal[0] = plane.normal.x; normal[1] = plane.normal.y; normal[2] = plane.normal.z; // TODO: Not this.
-                
-                dist = vec3.dot(normal, pos) - plane.dist;
-
-                if (dist >= 0) {
-                    index = node.children[0];
-                } else {
-                    index = node.children[1];
-                }
-            }
-
-            return -(index+1);
-        }
-    },
-    
-    getLeafFaces: {
-        value: function(leafId) {
-            var leaf = this.leaves[leafId];
-            return this.leafFaces.subarray(leaf.firstleafface, leaf.firstleafface + leaf.numleaffaces);
-        }
-    },
-    
-    addPropToLeaf: {
-        value: function(leafId, propId) {
-            var leaf = this.leaves[leafId];
-            leaf.addProp(propId);
-        }
-    },
-    
-    getLeafProps: {
-        value: function(leafId) {
-            return this.leaves[leafId].props;
-        }
-    },
-    
-    /**
-     * Determine if the given leaf is one that contains visibility information
-     */
-    isVisLeaf: {
-        value: function(leafId) {
-            return this.leaves[leafId].cluster != -1;
-        }
-    },
-    
-    _parseVis: {
-        value: function(buffer, lump) {
-            var offset = lump.fileofs;
-            
-            var visHeader = dvisheader_t.readStructs(buffer, offset, 1)[0];
-            offset += dvisheader_t.byteLength;
-            var numCluster = this.numClusters = visHeader.numclusters;
-            var visOffsets = dvis_t.readStructs(buffer, offset, numCluster);
-            var numBytes = Math.ceil(numCluster / 8);
-            
-            // This is wasting a lot of space, but it's a straightforward method for the time being
-            // TODO: Optimize later
-            var clusterVis = this.clusterVis = new Uint8Array(numCluster * numCluster);
-            for(var i = 0; i < numCluster; ++i) {
-                var rleVis = new Uint8Array(buffer, lump.fileofs + visOffsets[i].visofs, numBytes);
-                var clusterOfs = i * numCluster;
-                var v = 0;
-                
-                // Unpack the RLE visibility bitfield
-                // See code at: http://www.flipcode.com/archives/Quake_2_BSP_File_Format.shtml
-                for (var c = 0; c < numCluster; v++) {
-                   if (rleVis[v] == 0) {
-                      v++;     
-                      c += 8 * rleVis[v];
-                   } else {
-                      for (var bit = 1; bit < 256; bit *= 2, c++) {
-                         if (rleVis[v] & bit) {
-                            clusterVis[clusterOfs + c] = 1;
-                         }
-                      }
-                   }
-                }
-            }
-        }
-    },
-    
-    isLeafVisible: {
-        value: function(fromLeafId, toLeafId) {
-            if(fromLeafId == toLeafId) { return true; } // Leaves are always visible from themselves
-            
-            var fromLeaf = this.leaves[fromLeafId];
-            var toLeaf = this.leaves[toLeafId];
-            
-            if(fromLeaf.cluster == -1 || !toLeaf.cluster == -1) { return false; }
-            
-            return this.clusterVis[(fromLeaf.cluster * this.numClusters) + toLeaf.cluster];
-        }
-    },
-    
-});
+var depthPassShader = null;
+var skyboxShader = null;
 
 var SourceBsp = Object.create(Object, {
     VERTEX_STRIDE: {
@@ -231,6 +124,10 @@ var SourceBsp = Object.create(Object, {
     
     VERTEX_ELEMENTS: {
         value: 7
+    },
+    
+    DEPTH_PREPASS: {
+        value: false
     },
     
     shader: {
@@ -254,6 +151,22 @@ var SourceBsp = Object.create(Object, {
     },
     
     propIndexBuffer: {
+        value: null
+    },
+    
+    skyboxVertBuffer: {
+        value: null
+    },
+    
+    skyboxIndexBuffer: {
+        value: null
+    },
+    
+    skyboxIndexCount: {
+        value: 0
+    },
+    
+    skyboxCubemap: {
         value: null
     },
     
@@ -289,6 +202,10 @@ var SourceBsp = Object.create(Object, {
         value: null
     },
     
+    onMaterialsComplete: {
+        value: null
+    },
+    
     load: {
         value: function(gl, url, callback) {
             this._initializeShaders(gl);
@@ -310,6 +227,7 @@ var SourceBsp = Object.create(Object, {
                 self._loadMaterials(gl, bspData);
                 self._loadStaticProps(gl, bspData);
                 self._compileBuffers(gl, bspData);
+                self._loadSkybox(gl, self.entities);
                 self.complete = true;
                 if(callback) { callback(self); }
             });
@@ -353,6 +271,8 @@ var SourceBsp = Object.create(Object, {
             this._parseGameLumps(buffer, bspData, bspData.gameLumps);
             
             bspData.entities = this._parseEntities(buffer, header.lumps[LUMP_ENTITIES]);
+            
+            this._parseDynamicProps(bspData.entities, bspData);
             
             return bspData;
         }
@@ -468,6 +388,58 @@ var SourceBsp = Object.create(Object, {
         }
     },
     
+    _parseDynamicProps: {
+        value: function(entities, bspData) {
+            var dynamicPropDict = {};
+            
+            var dynamicPropEntities = entities.prop_dynamic;
+            for(var propId in dynamicPropEntities) {
+                var prop = dynamicPropEntities[propId];
+                var modelType = prop.model;
+                
+                var propDict = dynamicPropDict[modelType];
+                if(!propDict) {
+                    dynamicPropDict[modelType] = propDict = Object.create(StaticPropDictLump_t);
+                    propDict.m_Name = modelType;
+                    bspData.staticPropDict.push(propDict);
+                    propDict.propDictId = bspData.staticPropDict.length - 1;
+                }
+                
+                var dynamicProp = Object.create(StaticPropLump_t);
+                dynamicProp.m_PropType = propDict.propDictId;
+                
+                dynamicProp.m_Origin = {
+                    x: prop.origin[0],
+                    y: prop.origin[1],
+                    z: prop.origin[2]
+                };
+                
+                dynamicProp.m_Angles = {
+                    x: prop.angles[0],
+                    y: prop.angles[1],
+                    z: prop.angles[2]
+                };
+                
+                // TODO: WTF? Why do I have to do this???
+                if(modelType == "models/props_gameplay/resupply_locker.mdl") {
+                    dynamicProp.m_Angles.y += 90;
+                }
+                
+                dynamicProp.m_LightingOrigin = dynamicProp.m_Origin;
+                
+                dynamicProp.m_LeafCount = 0;
+                dynamicProp.m_FirstLeaf = -1;
+                
+                //propDict.addProp(dynamicProp);
+                bspData.staticProps.push(dynamicProp);
+                
+                var propId = bspData.staticProps.length - 1;
+                var leafId = this.bspTree.getLeafId(prop.origin);
+                this.bspTree.addPropToLeaf(leafId, propId);
+            }
+        }
+    },
+    
     _loadStaticProps: {
         value: function(gl, bspData) {
             var self = this;
@@ -492,8 +464,10 @@ var SourceBsp = Object.create(Object, {
                 var origin = prop.m_Origin;
                 var angle = prop.m_Angles;
                 
-                var propDict = bspData.staticPropDict[prop.m_PropType];
-                propDict.addProp(prop);
+                if(prop.m_PropType >= 0) {
+                    var propDict = bspData.staticPropDict[prop.m_PropType];
+                    propDict.addProp(prop);
+                }
                 
                 var modelMat = mat4.create();
                 mat4.identity(modelMat);
@@ -553,6 +527,8 @@ var SourceBsp = Object.create(Object, {
             var vertexArrayOffset = 0;
             var indexArrayOffset = 0;
             
+            var propIndexCount = 0;
+            
             for(var propId in this.staticPropDict) {
                 var prop = this.staticPropDict[propId];
                 var model = prop.model;
@@ -564,6 +540,8 @@ var SourceBsp = Object.create(Object, {
                 
                 vertexArrayOffset += model.vertexArray.length;
                 indexArrayOffset += model.indexArray.length;
+                
+                propIndexCount += model.indexArray.length * prop.props.length;
                 
                 // Don't keep references to the arrays around, we don't need them anymore
                 model.vertexArray = null;
@@ -577,6 +555,12 @@ var SourceBsp = Object.create(Object, {
             this.propIndexBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.propIndexBuffer);
             gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
+            
+            if(this.onMaterialsComplete) {
+                this.onMaterialsComplete(this);
+            }
+            
+            console.log("Prop Tris: " + propIndexCount / 3);
         }
     },
     
@@ -653,6 +637,7 @@ var SourceBsp = Object.create(Object, {
                     lightmap: lightmap,
                     renderFrame: -1,
                     translucent: false,
+                    displacement: false
                 };
                 
                 for(var faceId in texData.faces) {
@@ -687,6 +672,7 @@ var SourceBsp = Object.create(Object, {
                                 lightmap: lightmap,
                                 renderFrame: -1,
                                 translucent: false,
+                                displacement: false
                             };
                         }
                     }
@@ -695,6 +681,10 @@ var SourceBsp = Object.create(Object, {
                     
                     if(texInfo.flags & SURF_TRANS) {
                         triPatch.translucent = true; // Flag transparent patches
+                    }
+                    
+                    if(face.dispinfo != -1) {
+                        triPatch.displacement = true; 
                     }
                     
                     // Just... ugh :(
@@ -759,6 +749,127 @@ var SourceBsp = Object.create(Object, {
             
             bspData.vertexArray = vertices;
             bspData.indexArray = indices;
+            
+            console.log("BSP Tris: " + indices.length / 3);
+        }
+    },
+    
+    _loadSkybox: {
+        value: function(gl, entities) {
+            var skyname = entities.worldspawn[0].skyname;
+            if(!skyname) { return; } // No Skybox?
+            
+            var skyVerts = [
+                // x     y     z
+                // Front
+                -128,  128,  128,
+                 128,  128,  128,
+                -128, -128,  128,
+                 128, -128,  128,
+                                 
+                // Back          
+                 128,  128, -128,
+                -128,  128, -128,
+                 128, -128, -128,
+                -128, -128, -128,
+                                 
+                // Left          
+                -128,  128, -128,
+                -128,  128,  128,
+                -128, -128, -128,
+                -128, -128,  128,
+                                 
+                // Right         
+                 128,  128,  128,
+                 128,  128, -128,
+                 128, -128,  128,
+                 128, -128, -128,
+                                 
+                // Top           
+                -128,  128,  128,
+                 128,  128,  128,
+                -128,  128, -128,
+                 128,  128, -128,
+                                 
+                // Bottom        
+                 128,  -128,  128,
+                -128,  -128,  128,
+                 128,  -128, -128,
+                -128,  -128, -128,
+            ];
+
+            var skyIndices = [
+                0, 1, 2,
+                2, 1, 3,
+
+                4, 5, 6,
+                6, 5, 7,
+
+                8, 9, 10,
+                10, 9, 11,
+
+                12, 13, 14,
+                14, 13, 15,
+
+                16, 17, 18,
+                18, 17, 19,
+                
+                20, 21, 22,
+                22, 21, 23,
+            ];
+
+            this.skyboxVertBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.skyboxVertBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(skyVerts), gl.STATIC_DRAW);
+
+            this.skyboxIndexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.skyboxIndexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(skyIndices), gl.STATIC_DRAW);
+
+            this.skyboxIndexCount = skyIndices.length;
+            
+            this.skyboxCubemap = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.skyboxCubemap);
+            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            
+            var self = this;
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "up", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_Y, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "dn", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_NEGATIVE_Y, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "lf", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "rt", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_NEGATIVE_X, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "ft", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_Z, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
+            materialManager.loadMaterial(gl, "root/tf/materials/", null, "skybox/" + skyname + "bk", function(material) {
+                material.onTextureLoaded = function(image) {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, self.skyboxCubemap);
+                    gl.texImage2D(gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                };
+            }, true);
         }
     },
     
@@ -768,6 +879,16 @@ var SourceBsp = Object.create(Object, {
                 sourceBspShader = glUtil.createShaderProgram(gl, mapVS, mapFS,
                     ['position', 'texture', 'light'],
                     ['viewMat', 'projectionMat', 'diffuse', 'lightmap']
+                );
+                
+                depthPassShader = glUtil.createShaderProgram(gl, depthPassVS, depthPassFS,
+                    ['position'],
+                    ['viewMat', 'modelMat', 'projectionMat']
+                );
+                
+                skyboxShader = glUtil.createShaderProgram(gl, skyVS, skyFS,
+                    ['position'],
+                    ['viewMat', 'projectionMat', 'diffuse']
                 );
             }
         }
@@ -790,6 +911,7 @@ var SourceBsp = Object.create(Object, {
     
     _loadMaterial: {
         value: function(gl, texData, materialName) {
+            if(texData.material) { return; }
             materialManager.loadMaterial(gl, "root/tf/materials/", null, materialName, function(material) {
                 texData.material = material;
             });
@@ -865,46 +987,89 @@ var SourceBsp = Object.create(Object, {
                 this._flagVisibleTriPatches(leafId, frameCount);
             }
             
-            // Render opaque geometry
+            // Render the skybox
+            // TODO: This may be more efficient if I can do it last, so the Z culling kicks in
+            gl.depthMask(0);
+            gl.colorMask(1,1,1,1);
+            gl.disable(gl.DEPTH_TEST);
             gl.disable(gl.BLEND);
+            this._drawSkybox(gl, viewMat, projectionMat);
+            
+            if(this.DEPTH_PREPASS) {
+                // Setup state for early-Z pass
+                gl.depthMask(1);
+                gl.colorMask(0,0,0,0);
+                gl.depthFunc(gl.LESS);
+                gl.enable(gl.DEPTH_TEST);
+            
+                // Do an early-Z pass on opaque geometry
+                this._drawBrushes(gl, viewMat, projectionMat, frameCount, cullFrame, false, true);
+                this._drawProps(gl, pos, viewMat, projectionMat, frameCount, cullFrame, false, true);
+            
+                // Turn off depth writes
+                gl.depthMask(0);
+                gl.colorMask(1,1,1,1);
+                gl.depthFunc(gl.EQUAL);
+            } else {
+                gl.depthMask(1);
+                gl.enable(gl.DEPTH_TEST);
+                gl.depthFunc(gl.LEQUAL);
+            }
+            
+            // Render opaque geometry
             var numSkippedBrushes = this._drawBrushes(gl, viewMat, projectionMat, frameCount, cullFrame, false);
-            var numSkippedProps = this._drawProps(gl, viewMat, projectionMat, frameCount, cullFrame, false);
+            var numSkippedProps = this._drawProps(gl, pos, viewMat, projectionMat, frameCount, cullFrame, false);
             
             // Render translucent geometry
             gl.enable(gl.BLEND);
+            gl.depthMask(1);
+            gl.depthFunc(gl.LEQUAL);
+            
+            this._drawOverlays(gl, viewMat, projectionMat, frameCount, cullFrame);
+            
             if(numSkippedBrushes > 0) {
                 this._drawBrushes(gl, viewMat, projectionMat, frameCount, cullFrame, true);
             }
             
             if(numSkippedProps > 0) {
-                this._drawProps(gl, viewMat, projectionMat, frameCount, cullFrame, true);
+                this._drawProps(gl, pos, viewMat, projectionMat, frameCount, cullFrame, true);
             }
+            
+            // Draw our "light"
+            //glUtil.drawCube(gl, pos, 128, [255, 255, 0, 255], viewMat, projectionMat);
         }
     },
     
     _drawBrushes: {
-        value: function(gl, viewMat, projectionMat, frameCount, cullFrame, translucent) {
-            var shader = sourceBspShader;
+        value: function(gl, viewMat, projectionMat, frameCount, cullFrame, translucent, depthPass) {
+            var shader = depthPass ? depthPassShader : sourceBspShader;
             var lastLightmap = null;
             var numSkippedSurfaces = 0;
             
             // Now we get down to the rendering loop
             gl.useProgram(shader);
             
-            gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
-            gl.uniform1i(shader.uniform.diffuse, 0);
-            
-            gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
-            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
-            
             // Bind the appropriate buffers
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-
+            
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
-            gl.enableVertexAttribArray(shader.attribute.texture);
-            gl.enableVertexAttribArray(shader.attribute.light);
+            
+            gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
+            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            gl.uniformMatrix4fv(shader.uniform.modelMat, false, modelIdentityMat);
+            
+            gl.uniform1i(shader.uniform.diffuse, 0);
+            gl.uniform1i(shader.uniform.lightmap, 1);
+            
+            if(!depthPass) {
+                gl.enableVertexAttribArray(shader.attribute.texture);
+                gl.enableVertexAttribArray(shader.attribute.light);
+            
+                gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
+                gl.uniform1i(shader.uniform.diffuse, 0);
+            }
             
             // Loop through the locking groups
             for(var lockGroupId in this.lockGroups) {
@@ -912,13 +1077,19 @@ var SourceBsp = Object.create(Object, {
             
                 // Draw the mesh
                 gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 0);
-                gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
-                gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
+                
+                if(!depthPass) {
+                    gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 12);
+                    gl.vertexAttribPointer(shader.attribute.light, 2, gl.FLOAT, false, this.VERTEX_STRIDE, lockGroup.vertexOffset + 20);
+                }
             
                 // Loop through each triangle patch within the lock group and render them
                 for(var triPatchId in lockGroup.triPatches) {
                     var triPatch = lockGroup.triPatches[triPatchId];
-                    if(cullFrame && triPatch.renderFrame != frameCount) { continue; }
+                    
+                    // Displacement bit is a hack to get them to display until I can figure out
+                    // how they are related to the BSP leaves
+                    if(cullFrame && triPatch.renderFrame != frameCount && !triPatch.displacement) { continue; }
                     
                     if(triPatch.texData && triPatch.texData.material) {
                         var material = triPatch.texData.material;
@@ -926,28 +1097,28 @@ var SourceBsp = Object.create(Object, {
                             numSkippedSurfaces++; 
                             continue; 
                         }
-                        material.setState(gl);
+                        material.setState(gl); // We need this even on the depth pass to manage front/back culling properly
                         texture = triPatch.texData.material.texture;
                     }
                     
-                    var texture = null;
-                    if(triPatch.texData && triPatch.texData.material) {
-                        texture = triPatch.texData.material.texture;
-                    }
-                    if(!texture) {
-                        texture = glUtil.defaultTexture;
-                    }
+                    if(!depthPass) {
+                        var texture = null;
+                        if(triPatch.texData && triPatch.texData.material) {
+                            texture = triPatch.texData.material.texture;
+                        }
+                        if(!texture) {
+                            texture = glUtil.defaultTexture;
+                        }
                     
-                    if(triPatch.lightmap !== lastLightmap) {
-                        gl.activeTexture(gl.TEXTURE1);
-                        gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
-                        gl.uniform1i(shader.uniform.lightmap, 1);
-                        lastLightmap = triPatch.lightmap;
-                    }
+                        if(triPatch.lightmap !== lastLightmap) {
+                            gl.activeTexture(gl.TEXTURE1);
+                            gl.bindTexture(gl.TEXTURE_2D, triPatch.lightmap.texture);
+                            lastLightmap = triPatch.lightmap;
+                        }
                     
-                    gl.activeTexture(gl.TEXTURE0);
-                    gl.bindTexture(gl.TEXTURE_2D, texture);
-                    gl.uniform1i(shader.uniform.diffuse, 0);
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, texture);
+                    }
                 
                     gl.drawElements(gl.TRIANGLES, triPatch.indexCount, gl.UNSIGNED_SHORT, lockGroup.indexOffset + triPatch.indexOffset);
                 }
@@ -958,10 +1129,10 @@ var SourceBsp = Object.create(Object, {
     },    
     
     _drawProps: {
-        value: function(gl, viewMat, projectionMat, frameCount, cullFrame, translucent) {
+        value: function(gl, pos, viewMat, projectionMat, frameCount, cullFrame, translucent, depthPass) {
             if(!cullFrame || !this.propVertBuffer) { return 0; } // Don't render props when we step outside the world geometry.
             
-            var shader = sourceMdlShader;
+            var shader = depthPass ? depthPassShader : sourceMdlShader;
             var numSkippedSurfaces = 0;
             
             //
@@ -969,24 +1140,28 @@ var SourceBsp = Object.create(Object, {
             //
             
             // Bind the common shader that they all use
-            shader = sourceMdlShader;
             gl.useProgram(shader);
+            
+            // Bind the appropriate buffers
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.propVertBuffer);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.propIndexBuffer);
             
             gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
             gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
 
             // Enable vertex arrays
             gl.enableVertexAttribArray(shader.attribute.position);
-            gl.enableVertexAttribArray(shader.attribute.texture);
-            gl.enableVertexAttribArray(shader.attribute.normal);
-            gl.enableVertexAttribArray(shader.attribute.tangent);
             
-            gl.uniform1i(shader.uniform.diffuse, 0);
-            gl.uniform1i(shader.uniform.bump, 1);
+            if(!depthPass) {
+                gl.enableVertexAttribArray(shader.attribute.texture);
+                gl.enableVertexAttribArray(shader.attribute.normal);
+                gl.enableVertexAttribArray(shader.attribute.tangent);
             
-            // Bind the appropriate buffers
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.propVertBuffer);
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.propIndexBuffer);
+                gl.uniform1i(shader.uniform.diffuse, 0);
+                gl.uniform1i(shader.uniform.bump, 1);
+                
+                gl.uniform3f(shader.uniform.lightPos, pos[0], pos[1], pos[2]);
+            }
             
             var vertexOffset, indexOffset;
             
@@ -1019,13 +1194,15 @@ var SourceBsp = Object.create(Object, {
                     // Bind the material for this mesh
                     material.setState(gl);
                     
-                    var texture = material ? material.texture : null;
-                    gl.activeTexture(gl.TEXTURE0);
-                    gl.bindTexture(gl.TEXTURE_2D, texture || glUtil.defaultTexture);
-                    
-                    var bump = material ? material.bump : null;
-                    gl.activeTexture(gl.TEXTURE1);
-                    gl.bindTexture(gl.TEXTURE_2D, bump || glUtil.defaultBumpTexture);
+                    if(!depthPass) {
+                        var texture = material ? material.texture : null;
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, texture || glUtil.defaultTexture);
+                        
+                        var bump = material ? material.bump : null;
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, bump || glUtil.defaultBumpTexture);
+                    }
                     
                     // Loop through all visible instances of this prop and draw them
                     // NOTE: This, this right here, is a perfect reason for wanting instancing!!!
@@ -1033,7 +1210,10 @@ var SourceBsp = Object.create(Object, {
                         var prop = propDict.props[propId];
                         if(prop.renderFrame != frameCount) { continue; } // This prop instance is not visible, skip
                         
-                        gl.uniform3f(shader.uniform.lightPos, prop.m_LightingOrigin.x, prop.m_LightingOrigin.y, prop.m_LightingOrigin.z);
+                        /*if(!depthPass) {
+                            gl.uniform3f(shader.uniform.lightPos, prop.m_LightingOrigin.x, prop.m_LightingOrigin.y, prop.m_LightingOrigin.z);
+                        }*/
+                        
                         gl.uniformMatrix4fv(shader.uniform.modelMat, false, prop.modelMat);
                         
                         /*mat4.multiply(viewMat, prop.modelMat, modelViewMat);
@@ -1049,6 +1229,46 @@ var SourceBsp = Object.create(Object, {
             }
             
             return numSkippedSurfaces;
+        }
+    },
+    
+    _drawOverlays: {
+        value: function(gl, viewMat, projectionMat, frameCount, cullFrame) {
+            
+        }
+    },
+    
+    _drawSkybox: {
+        value: function(gl, viewMat, projectionMat) {
+            var shader = skyboxShader;
+            if(!this.skyboxCubemap || !shader) { return; }
+            gl.enable(gl.TEXTURE_CUBE_MAP);
+            
+            gl.disable(gl.CULL_FACE);
+            
+            // Bind the common shader that they all use
+            gl.useProgram(shader);
+            
+            // Bind the buffers
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.skyboxVertBuffer);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.skyboxIndexBuffer);
+            
+            // Set uniforms
+            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
+            gl.uniform1i(shader.uniform.diffuse, 0);
+            
+            gl.enableVertexAttribArray(shader.attribute.position);
+            gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, 12, 0);
+            
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.skyboxCubemap);
+            
+            gl.drawElements(gl.TRIANGLES, this.skyboxIndexCount, gl.UNSIGNED_SHORT, 0);
+            
+            gl.disable(gl.TEXTURE_CUBE_MAP);
+            
+            gl.enable(gl.CULL_FACE);
         }
     },
     

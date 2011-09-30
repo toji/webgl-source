@@ -294,6 +294,7 @@ var SourceBsp = Object.create(Object, {
                 texData: this._parseLump(buffer, header.lumps[LUMP_TEXDATA], dtexdata_t),
                 brushes: this._parseLump(buffer, header.lumps[LUMP_BRUSHES], dbrush_t),
                 brushSides: this._parseLump(buffer, header.lumps[LUMP_BRUSHSIDES], dbrushside_t),
+                overlays: this._parseLump(buffer, header.lump[LUMP_OVERLAYS], doverlay_t),
             };
             
             this.bspTree = Object.create(SourceBspTree).parse(buffer, header);

@@ -27,6 +27,24 @@
 
 "use strict";
 
+var debugVS = "attribute vec3 position;\n";
+debugVS += "uniform mat4 viewMat;\n";
+debugVS += "uniform mat4 modelMat;\n";
+debugVS += "uniform mat4 projectionMat;\n";
+debugVS += "void main(void) {\n";
+debugVS += " mat4 modelViewMat = viewMat * modelMat;\n";
+debugVS += " vec4 vPosition = modelViewMat * vec4(position, 1.0);\n";
+debugVS += " gl_Position = projectionMat * vPosition;\n";
+debugVS += "}";
+
+var debugFS = "uniform vec4 color;\n";
+debugFS += "void main(void) {\n";
+debugFS += " gl_FragColor = color;\n";
+debugFS += "}";
+
+var debugShader = null;
+var debugMatrix = mat4.create();
+
 var glUtil = Object.create(Object, {
     getContext: {
         value: function(canvas) {
@@ -155,5 +173,89 @@ var glUtil = Object.create(Object, {
             this.defaultTexture = this.loadTexture(gl, src);
             this.defaultBumpTexture = this.createSolidTexture(gl, [0, 0, 255]);
         }
-    }
+    },
+    
+    _getDebugShader: {
+        value: function(gl) {
+            if(!debugShader) {
+                debugShader = this.createShaderProgram(gl, debugVS, debugFS, ['position'], ['viewMat', 'modelMat', 'projectionMat', 'color']);
+            }
+            return debugShader;
+        }
+    },
+    
+    _buildCube: {
+        value: function(gl) {
+            if(this.cubeVertBuffer) { return; }
+            var cubeVerts = [
+                1, 1, 1,
+                -1, 1, 1,
+                1, -1, 1,
+                -1, -1, 1,
+                
+                1, 1, -1,
+                -1, 1, -1,
+                1, -1, -1,
+                -1, -1, -1,
+            ];
+
+            var cubeIndices = [
+                0, 1, 2,
+                2, 1, 3,
+
+                4, 5, 6,
+                6, 5, 7,
+
+                0, 2, 4,
+                4, 2, 6,
+                
+                1, 3, 5,
+                5, 3, 7,
+                
+                0, 1, 4,
+                4, 1, 5,
+                
+                2, 3, 6,
+                6, 3, 7,
+            ];
+
+            this.cubeVertBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.cubeVertBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeVerts), gl.STATIC_DRAW);
+
+            this.cubeIndexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.cubeIndexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cubeIndices), gl.STATIC_DRAW);
+        }
+    },
+    
+    drawCube: {
+        value: function(gl, pos, size, color, viewMat, projectionMat) {
+            var shader = this._getDebugShader(gl);
+            this._buildCube(gl);
+            
+            mat4.identity(debugMatrix);
+            mat4.translate(debugMatrix, pos);
+            mat4.scale(debugMatrix, [size, size, size]);
+            
+            gl.useProgram(shader);
+            
+            gl.uniform4f(shader.uniform.color, color[0], color[1], color[2], color[3]);
+            gl.uniformMatrix4fv(shader.uniform.projectionMat, false, projectionMat);
+            gl.uniformMatrix4fv(shader.uniform.viewMat, false, viewMat);
+            gl.uniformMatrix4fv(shader.uniform.modelMat, false, debugMatrix);
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.cubeVertBuffer);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.cubeIndexBuffer);
+            
+            gl.enableVertexAttribArray(shader.attribute.position);
+            gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, 12, 0);
+            
+            gl.disable(gl.CULL_FACE);
+            
+            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+            
+            gl.enable(gl.CULL_FACE);
+        }
+    },
 });
