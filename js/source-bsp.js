@@ -1216,10 +1216,6 @@ var SourceBsp = Object.create(Object, {
                         
                         gl.uniformMatrix4fv(shader.uniform.modelMat, false, prop.modelMat);
                         
-                        /*mat4.multiply(viewMat, prop.modelMat, modelViewMat);
-                        mat4.toInverseMat3(modelViewMat, modelViewInvMat);
-                        gl.uniformMatrix3fv(shader.uniform.normalMat, false, modelViewInvMat);*/
-                        
                         for(var triPatchId in mesh.triPatches) {
                             var triPatch = mesh.triPatches[triPatchId];
                             gl.drawElements(gl.TRIANGLES, triPatch.numIndices, gl.UNSIGNED_SHORT, model.indexOffset + triPatch.indexOffset);

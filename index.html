@@ -9,7 +9,6 @@
         <script type="text/javascript" src="js/js-struct.js"></script>
         <script type="text/javascript" src="js/webgl-util.js"></script>
         <script type="text/javascript" src="js/webgl-demo-camera.js"></script>
-        <script type="text/javascript" src="js/webgl-debug.js"></script>
         
         <!-- Source engine specific -->
         <script type="text/javascript" src="js/source-vmt.js"></script>
@@ -46,22 +45,21 @@
                 initMesh(gl);
             }
             
-            // Load the collada model
+            // Load the map
             function initMesh(gl) {
-                //model = Object.create(SourceModel).load(gl, 'root/tf/models/heavy');
                 map = Object.create(SourceBsp).load(gl, 'root/tf/maps/ctf_2fort', function(map) {
                     setCameraSpawn(map.entities.info_player_start[0]);
                 });
                 map.onMaterialsComplete = function(map) {
-                    var loadingText = document.getElementById("loading-text");
+                    // For onGameStart Theatrics
+                    /*var loadingText = document.getElementById("loading-text");
                     var readyBtn = document.getElementById("ready-btn");
                     var loadingSubtext = document.getElementById("loading-subtext");
                     
                     loadingText.innerHTML = "Surprise Ready!";
                     readyBtn.style.display = "inline-block";
-                    loadingSubtext.innerHTML = "You should probably shut up and show the demo now";
+                    loadingSubtext.innerHTML = "You should probably shut up and show the demo now";*/
                 };
-                //map = Object.create(SourceBsp).load(gl, 'root/tf/maps/cp_badlands');
             }
             
             function setCameraSpawn(spawnPoint) {
@@ -119,14 +117,6 @@
                 
                 if(!gl) { return; }
                 
-                // DON'T LEAVE THIS ON!!
-                //gl = WebGLDebugUtils.makeDebugContext(gl);
-                
-                /*function throwOnGLError(err, funcName, args) {
-                  throw WebGLDebugUtils.glEnumToString(err) + " was caused by call to" + funcName;
-                };
-                gl = WebGLDebugUtils.makeDebugContext(gl, throwOnGLError);*/
-                
                 initGL(gl, canvas);
                 
                 // Draw Frames in quick succession
@@ -142,7 +132,7 @@
                 }, 1000); // TODO: This is pretty clunky. Find a better way...
                 
                 // For onGameStart theatrics:
-                var loadingSplash = document.getElementById("loading-splash");
+                /*var loadingSplash = document.getElementById("loading-splash");
                 var readyBtn = document.getElementById("ready-btn");
                 
                 readyBtn.addEventListener("click", function(event) {
@@ -151,7 +141,7 @@
                     }, false);
                     loadingSplash.classList.add("fade");
                     event.preventDefault();
-                }, false);
+                }, false);*/
             }
             
             window.addEventListener("load", main);
@@ -220,11 +210,11 @@
                     Getting a WebGL Implementation
                 </a>
             </canvas>
-            <div id="loading-splash">
+            <!--div id="loading-splash">
                 <h2 id="loading-text">Now Preparing Surprise...</h2>
                 <button id="ready-btn" style="display: none;">Go!</button>
                 <h3 id="loading-subtext">Keep talking! Distract the audience!</h3>
-            </div>
+            </div-->
             <div id="fps-counter">
                 FPS: <span id="fps">0</span>
             </div>

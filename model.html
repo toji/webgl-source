@@ -46,9 +46,8 @@
                 initMesh(gl);
             }
             
-            // Load the collada model
+            // Load the model
             function initMesh(gl) {
-                //model = Object.create(SourceModel).load(gl, 'root/tf/models/props_2fort/hubcap');
                 model = Object.create(SourceModel).load(gl, 'root/tf/models/player/heavy');
             }
 
@@ -92,12 +91,6 @@
                 var gl = glUtil.getContext(canvas);
                 
                 if(!gl) { return; }
-                
-                
-                /*function throwOnGLError(err, funcName, args) {
-                  throw WebGLDebugUtils.glEnumToString(err) + " was caused by call to" + funcName;
-                };
-                gl = WebGLDebugUtils.makeDebugContext(gl, throwOnGLError);*/
                 
                 initGL(gl, canvas);
                 
