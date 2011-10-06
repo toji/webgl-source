@@ -8,5 +8,5 @@ authorize or endorse this project in any way.
 Related Links
 -------------
 
-* Video Demo Coming Soon
+* [Video Demo](http://www.youtube.com/watch?v=DQrC5YLKFUY)
 * [Technical Overview](http://blog.tojicode.com/2011/09/source-engine-in-webgl-tech-talk.html)
