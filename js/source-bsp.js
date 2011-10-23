@@ -1177,7 +1177,7 @@ var SourceBsp = Object.create(Object, {
                 
                 // Setup the vertex layout
                 gl.vertexAttribPointer(shader.attribute.position, 3, gl.FLOAT, false, 64, vertexOffset + 16);
-                gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, true, 64, vertexOffset + 28);
+                gl.vertexAttribPointer(shader.attribute.normal, 3, gl.FLOAT, false, 64, vertexOffset + 28);
                 gl.vertexAttribPointer(shader.attribute.texture, 2, gl.FLOAT, false, 64, vertexOffset + 40);
                 gl.vertexAttribPointer(shader.attribute.tangent, 4, gl.FLOAT, false, 64, vertexOffset + 48);
                 
