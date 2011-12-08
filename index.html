@@ -109,8 +109,8 @@
                 var canvas = document.getElementById('viewport');
                 
                 // Fit the canvas to the document
-                canvas.width = document.width; //854; 
-                canvas.height = document.height; //480;
+                canvas.width = window.innerWidth; //854; 
+                canvas.height = window.innerHeight; //480;
                 
                 // Get the GL Context
                 var gl = glUtil.getContext(canvas);
