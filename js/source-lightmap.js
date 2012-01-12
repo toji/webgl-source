@@ -96,7 +96,7 @@ var SourceLightmap = Object.create(Object, {
                 for(var j = 0; j < styleCount; ++j) {
                     var lightOffset = face.lightofs + (byteCount*j);
                     var lightbuffer = lighting.subarray(lightOffset, lightOffset + byteCount);
-                    var expbuffer = lightingExp.subarray(lightOffset + 3, lightOffset + byteCount - 3);
+                    var expbuffer = lightingExp.subarray(lightOffset + 3, lightOffset + byteCount);
                     
                     var i = 0;
                     
